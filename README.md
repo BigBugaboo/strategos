@@ -38,6 +38,17 @@ Strategos provides a small neutral layer:
 Requirements: Node.js 24+, Git, and at least one supported agent CLI. If you
 use `fnm`, run `fnm use` in the repository to select the pinned major version.
 
+### Tested CLI baseline
+
+| CLI | Tested version |
+| --- | ---: |
+| Claude Code | `2.1.215` |
+| OpenAI Codex CLI | `0.144.6` |
+| GitHub Copilot CLI | `1.0.71` |
+
+These versions are the current validation baseline, not hard pins. See
+[COMPATIBILITY.md](COMPATIBILITY.md) for the support and upgrade policy.
+
 ```bash
 git clone https://github.com/BigBugaboo/strategos.git
 cd strategos
