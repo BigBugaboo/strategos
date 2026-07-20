@@ -68,7 +68,15 @@ The orchestrator owns `.strategos/runs/`. Agent processes only work inside
 their assigned worktrees. `run.json` is the machine-readable source of truth;
 Markdown and log files are review artifacts.
 
-## Non-goals for v0.1
+### Upgrade boundary
+
+The upgrade module detects whether Strategos is running from a global npm
+package, an npx cache, a source checkout or npm link, or a project-local
+dependency. Only a confirmed global npm installation is updated automatically.
+Other modes receive explicit commands so package-manager state and source
+checkouts are not silently replaced.
+
+## Non-goals for v0.2
 
 - Porting native conversation histories between vendors.
 - Automatic branch merging or pushing.

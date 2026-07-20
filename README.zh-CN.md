@@ -108,6 +108,27 @@ strategos --help
 
 参与 Strategos 本身的开发时，切换 Node.js 安装后需要重新执行 `npm link`。
 
+### 升级 Strategos
+
+先检查当前安装方式，不执行任何修改：
+
+```bash
+strategos upgrade --dry-run
+```
+
+确认后升级 npm 全局安装：
+
+```bash
+strategos upgrade
+strategos --version
+strategos doctor
+```
+
+`strategos update` 是等价别名。源码目录、`npm link`、临时 `npx` 包和项目
+本地依赖不会被自动覆盖，命令会针对识别出的安装方式打印安全升级步骤。
+恢复、版本固定和 Agent CLI 升级流程详见
+[docs/upgrading.md](docs/upgrading.md)（英文标准文档）。
+
 ## 建议分工
 
 - Claude：主功能实现、大范围理解和重构。

@@ -131,6 +131,28 @@ strategos --help
 For development, run `npm link` again after switching to a different Node.js
 installation.
 
+### Upgrade Strategos
+
+Inspect the detected installation mode without changing anything:
+
+```bash
+strategos upgrade --dry-run
+```
+
+Then upgrade a persistent global npm installation:
+
+```bash
+strategos upgrade
+strategos --version
+strategos doctor
+```
+
+`strategos update` is an alias. Source checkouts, `npm link`, temporary `npx`
+packages, and project-local dependencies are not overwritten automatically;
+the command prints the safe update steps for the detected mode. See
+[docs/upgrading.md](docs/upgrading.md) for recovery, pinning, and agent CLI
+upgrade workflows.
+
 ## Plan example
 
 ```json

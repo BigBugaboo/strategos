@@ -39,6 +39,11 @@ Version managers keep global packages isolated. Repeat `npm link` after
 switching Node.js installations. Use `npm unlink -g strategos-cli` to remove
 the development link.
 
+Before changing the tested CLI baseline, follow [docs/upgrading.md](docs/upgrading.md)
+and update `COMPATIBILITY.md` in the same pull request. Upgrade behavior must
+remain non-destructive for source checkouts, npm links, npx caches, and
+project-local installations.
+
 ## Project language
 
 Use English for:

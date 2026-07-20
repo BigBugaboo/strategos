@@ -1,13 +1,17 @@
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { initializeProject, loadConfig } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { findRepoRoot } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
+import { formatUpgradeResult, upgradeStrategos } from "./upgrade.js";
 import { parsePositiveInteger } from "./utils.js";
 
-const VERSION = "0.1.0";
+const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
+const VERSION = JSON.parse(readFileSync(packagePath, "utf8")).version;
 
 function help() {
   return `Strategos ${VERSION} — local-first coding-agent orchestration
@@ -15,6 +19,7 @@ function help() {
 Usage:
   strategos init [path]
   strategos doctor [--json]
+  strategos upgrade [--dry-run]
   strategos run <plan.json> [--dry-run] [--max-parallel N]
   strategos status [run-id] [--json]
 
@@ -93,6 +98,15 @@ export async function main(args) {
     if (hasFlag(args, "--json")) console.log(JSON.stringify(checks, null, 2));
     else printDoctor(checks);
     if (checks.some((check) => !check.ok)) process.exitCode = 2;
+    return;
+  }
+
+  if (command === "upgrade" || command === "update") {
+    const result = await upgradeStrategos({
+      dryRun: hasFlag(args, "--dry-run"),
+      entrypoint: process.argv[1],
+    });
+    console.log(formatUpgradeResult(result));
     return;
   }
 
