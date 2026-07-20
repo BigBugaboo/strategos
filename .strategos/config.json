@@ -1,0 +1,20 @@
+{
+  "maxParallel": 3,
+  "baseRef": "HEAD",
+  "worktreeRoot": "../.strategos-worktrees",
+  "maxContextBytes": 64000,
+  "agents": {
+    "claude": {
+      "command": "claude",
+      "extraArgs": []
+    },
+    "codex": {
+      "command": "codex",
+      "extraArgs": []
+    },
+    "copilot": {
+      "command": "copilot",
+      "extraArgs": []
+    }
+  }
+}

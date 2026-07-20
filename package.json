@@ -1,0 +1,31 @@
+{
+  "name": "strategos-cli",
+  "version": "0.1.0",
+  "description": "Local-first orchestration for Claude Code, Codex CLI, and GitHub Copilot CLI.",
+  "type": "module",
+  "bin": {
+    "strategos": "./bin/strategos.js"
+  },
+  "scripts": {
+    "start": "node ./bin/strategos.js",
+    "doctor": "node ./bin/strategos.js doctor",
+    "check": "node --check ./bin/strategos.js && node --check ./src/cli.js && node --check ./src/orchestrator.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "codex-cli",
+    "copilot-cli",
+    "git-worktree",
+    "orchestration"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BigBugaboo/strategos.git"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "goal": "Improve Strategos plan validation and independently review the change.",
+  "context": [
+    "AGENTS.md",
+    "docs/architecture.md",
+    "docs/plan-schema.md"
+  ],
+  "tasks": [
+    {
+      "id": "validation",
+      "agent": "claude",
+      "mode": "write",
+      "prompt": "Add a focused validation improvement with unit coverage. Do not change the public schema without documenting it.",
+      "dependsOn": []
+    },
+    {
+      "id": "edge-cases",
+      "agent": "codex",
+      "mode": "read-only",
+      "prompt": "Inspect plan validation for untested edge cases and return a prioritized report with proposed test cases.",
+      "dependsOn": []
+    },
+    {
+      "id": "review",
+      "agent": "copilot",
+      "mode": "read-only",
+      "prompt": "Review the implementation and edge-case reports for correctness, compatibility, and missing tests.",
+      "dependsOn": [
+        "validation",
+        "edge-cases"
+      ]
+    }
+  ]
+}
