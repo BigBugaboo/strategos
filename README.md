@@ -35,7 +35,8 @@ Strategos provides a small neutral layer:
 
 ## Quick start
 
-Requirements: Node.js 18.18+, Git, and at least one supported agent CLI.
+Requirements: Node.js 24+, Git, and at least one supported agent CLI. If you
+use `fnm`, run `fnm use` in the repository to select the pinned major version.
 
 ```bash
 git clone https://github.com/BigBugaboo/strategos.git
