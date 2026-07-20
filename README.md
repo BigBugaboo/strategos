@@ -22,8 +22,8 @@ Strategos provides a small neutral layer:
 
 - **Shared context** compiled from `AGENTS.md`, project context, team memory,
   task-specific files, and completed dependency reports.
-- **Explicit task graph** with dependencies rather than an opaque LLM deciding
-  everything at runtime.
+- **CLI-generated task graph** produced by one read-only strategist CLI, then
+  schema-checked and shown before worker execution.
 - **Parallel waves** capped by a configurable concurrency limit.
 - **Worktree isolation** for every task, including independent branches.
 - **Provider adapters** for `claude`, `codex`, and `copilot` commands already
@@ -60,24 +60,30 @@ strategos
 ```
 
 ```text
-Strategos 0.3.0
+Strategos 0.4.0
+Strategist: codex
 Agents: ✓ Claude  ✓ Codex  ✓ Copilot
 
 What do you want to accomplish?
 > Add CSV export and focused tests
 
-Wave 1: implementation, tests
+Asking codex to plan in read-only mode...
+Proposed by codex (review before running):
+Wave 1: implementation
 Wave 2: review
 ```
 
-Ordinary text proposes a starter task graph using the available agent CLIs.
-The plan is deterministic and must be reviewed; no agent runs until the user
-enters `/run`. Useful console commands include:
+Ordinary text immediately asks the configured strategist CLI to inspect the
+repository in read-only mode and return a JSON task graph for the other healthy
+agent CLIs. Strategos uses no model SDK, API key, or embedded AI provider. It
+validates and displays the plan, but creates no worker worktree and starts no
+worker until the user enters `/run`. Press `Ctrl+C` to cancel a slow planning
+call. Useful console commands include:
 
 ```text
-/new [goal]   /plan      /load <file>  /save [file]
-/preview      /run       /status [id]  /agents
-/context      /init      /help         /exit
+/new [goal]   /strategist [agent]  /plan       /load <file>
+/save [file]  /preview               /run        /status [id]
+/agents       /context               /init       /help       /exit
 ```
 
 See [docs/interactive-console.md](docs/interactive-console.md) for the complete
@@ -268,12 +274,11 @@ See [docs/architecture.md](docs/architecture.md) and
 
 Likely next steps:
 
-1. LLM-assisted planning as an optional replacement for the deterministic starter strategy.
-2. Resumable process sessions, cancellation, and richer terminal rendering.
-3. Optional Docker/OS sandbox profiles.
-4. Cross-agent messaging through a typed local protocol.
-5. Test-gated merge queue with an explicit approval step.
-6. MCP server so any supported agent can operate Strategos as a tool.
+1. Resumable process sessions, cancellation, and richer terminal rendering.
+2. Optional Docker/OS sandbox profiles.
+3. Cross-agent messaging through a typed local protocol.
+4. Test-gated merge queue with an explicit approval step.
+5. MCP server so any supported agent can operate Strategos as a tool.
 
 ## Inspiration
 

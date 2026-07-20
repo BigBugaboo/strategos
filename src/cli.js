@@ -26,11 +26,12 @@ Usage:
   strategos status [run-id] [--json]
 
 Interactive mode:
-  Run strategos without a subcommand, enter a development goal, review the
-  proposed task graph, then use /preview or /run.
+  Run strategos without a subcommand. A selected agent CLI plans in read-only
+  mode; review its task graph, then use /preview or /run.
 
 Core model:
-  A JSON task graph assigns work to Claude Code, Codex CLI, or Copilot CLI.
+  Strategos has no model API. One installed CLI produces a JSON task graph for
+  other installed CLIs through the local adapter and authentication boundary.
   Every runnable task gets an isolated Git worktree and a durable report.
   Strategos does not merge or push generated branches automatically.
 `;

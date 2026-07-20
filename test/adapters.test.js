@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentInvocation } from "../src/adapters.js";
+import { agentInvocation, strategistInvocation } from "../src/adapters.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 
 const input = {
@@ -42,4 +42,26 @@ test("custom adapters replace only complete placeholders", () => {
   };
   const invocation = agentInvocation("worker", { ...input, mode: "write", config });
   assert.deepEqual(invocation.args, ["--cwd", input.workspace, "write", input.prompt]);
+});
+
+test("Claude strategist uses native structured output and read-only tools", () => {
+  const invocation = strategistInvocation("claude", {
+    ...input,
+    jsonSchema: { type: "object" },
+  });
+  assert.ok(invocation.args.includes("--json-schema"));
+  assert.ok(invocation.args.includes("Read,Glob,Grep"));
+  assert.ok(invocation.args.includes("plan"));
+  assert.ok(!invocation.args.includes("--dangerously-skip-permissions"));
+});
+
+test("Codex strategist uses a read-only sandbox and output schema", () => {
+  const invocation = strategistInvocation("codex", {
+    ...input,
+    jsonSchema: { type: "object" },
+    schemaPath: "/tmp/plan.schema.json",
+  });
+  assert.ok(invocation.args.includes("read-only"));
+  assert.ok(invocation.args.includes("--output-schema"));
+  assert.ok(invocation.args.includes("/tmp/plan.schema.json"));
 });

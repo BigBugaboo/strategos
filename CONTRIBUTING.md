@@ -52,6 +52,9 @@ project-local installations.
 
 Interactive changes must preserve the explicit `/run` approval boundary and
 keep every existing non-interactive subcommand suitable for scripts and CI.
+Strategist calls must remain read-only, use existing CLI authentication, and
+return plans through the validated JSON contract. Tests must stub strategist
+processes instead of consuming contributor model quota.
 
 ## Project language
 

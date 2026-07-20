@@ -8,11 +8,18 @@
    treated as portable state.
 4. Worktrees isolate writes. A human controls integration.
 5. Failure is local to a task whenever possible.
-6. Interactive input proposes a plan; it never implies permission to execute it.
+6. Interactive input authorizes one read-only planning call; it never implies
+   permission to execute worker tasks.
 
 ## Components
 
 ```text
+User goal
+   │
+   ▼
+Strategist CLI (read-only)
+   │ JSON task graph
+   ▼
 plan.json
    │
    ▼
@@ -37,13 +44,23 @@ Context compiler ─► task prompt
 Normalizes task modes, checks agent names and references, and rejects cycles
 before any worktree is created.
 
+### Strategist planner
+
+The planner invokes one existing agent CLI through the same adapter boundary
+used by workers, but always in read-only mode and in the target repository. It
+supplies the goal, shared context, available worker capabilities, and the plan
+schema. Strategos extracts and validates the returned JSON; it has no model SDK
+or direct provider API dependency. The strategist is excluded from worker
+assignment when another healthy CLI is available.
+
 ### Interactive console
 
 Running `strategos` without a subcommand starts a zero-dependency readline
-console. Ordinary text is converted into a deterministic starter task graph
-using only agent CLIs that pass the local doctor check. The user must explicitly
-enter `/run` before orchestration begins. Slash commands provide plan loading,
-saving, previewing, execution, run status, agent health, and context inspection.
+console. Ordinary text is converted into a strategist-generated task graph by
+invoking the selected strategist CLI in read-only mode. The user must
+explicitly enter `/run` before worker orchestration begins. Slash commands
+provide strategist selection, plan loading, saving, previewing, execution, run
+status, agent health, and context inspection.
 
 The console consumes structured progress events from the orchestrator. Event
 rendering is isolated from execution so terminal output failures cannot stop a
@@ -89,7 +106,7 @@ dependency. Only a confirmed global npm installation is updated automatically.
 Other modes receive explicit commands so package-manager state and source
 checkouts are not silently replaced.
 
-## Non-goals for v0.3
+## Non-goals for v0.4
 
 - Porting native conversation histories between vendors.
 - Automatic branch merging or pushing.

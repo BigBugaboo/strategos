@@ -17,22 +17,43 @@ development goal.
 
 ## Planning and approval
 
-The `0.3.x` console builds a deterministic starter strategy:
+The `0.4.x` console delegates planning to one installed agent CLI instead of
+embedding a model provider:
 
-1. A write-capable primary agent receives the implementation task.
-2. When three agents are available, a second agent receives an independent
-   test task that can run in parallel.
-3. A remaining agent receives a read-only review task after its dependencies.
+1. The configured strategist, `codex` by default, is invoked immediately in
+   read-only mode when the user enters a goal.
+2. The strategist inspects the repository and receives shared project context,
+   the available worker names, safety constraints, and the plan JSON schema.
+3. It returns a task graph for the other healthy agent CLIs. If only one CLI is
+   available, that CLI may plan first and work only after approval.
+4. Strategos extracts the JSON, validates task IDs, agents, modes,
+   dependencies, task count, and cycles, then displays the proposed waves.
+5. The user reviews the result with `/plan` or `/preview` and explicitly enters
+   `/run` to start worker tasks.
 
-This starter strategy is deliberately transparent and does not use an LLM to
-route work. Review it with `/plan` or `/preview`. Strategos does not create
-worktrees or call an agent until the user explicitly enters `/run`.
+Strategos contains no model SDK, model API integration, or provider key. A goal
+does consume one planning call through the selected CLI, but planning creates
+no worktree and grants no write permission. Invalid or failed strategist output
+is reported as an error rather than replaced with a hidden local plan. Press
+`Ctrl+C` during planning to terminate that strategist process and return to the
+console.
+
+The default can be changed in `.strategos/config.json`:
+
+```json
+{
+  "strategist": "codex",
+  "planningTimeoutMinutes": 5,
+  "maxPlanningTasks": 12
+}
+```
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `/new [goal]` | Propose another starter strategy. If the goal is omitted, enter it on the next line. |
+| `/new [goal]` | Ask the strategist to produce another plan. If the goal is omitted, enter it on the next line. |
+| `/strategist [agent]` | Show or change the planning CLI for the current session. |
 | `/plan` | Show the current task graph and dependency waves. |
 | `/load <file>` | Load and validate a JSON plan inside the repository. |
 | `/save [file]` | Save the current plan. The default is a timestamped file under `.strategos/plans/`. |
@@ -67,11 +88,12 @@ This ensures every task worktree starts from a reproducible committed `HEAD`.
 
 ## Current boundaries
 
-- Starter planning is deterministic rather than LLM-assisted.
-- A running task cannot yet be cancelled from the console.
+- Each goal starts a fresh non-interactive strategist call; native CLI chat
+  history is not imported or shared.
+- Worker tasks started by `/run` cannot yet be cancelled from the console.
 - The console renders a scrolling event stream rather than a full-screen TUI.
 - Branch integration remains human-controlled; Strategos does not merge or
   push agent branches automatically.
 
-These boundaries keep the first interactive release dependency-free and
-preserve the same safety model as non-interactive execution.
+These boundaries keep planning provider-neutral and preserve the same safety
+model as non-interactive execution.

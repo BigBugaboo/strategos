@@ -5,10 +5,10 @@ import readline from "node:readline";
 import { initializeProject, loadConfig } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { loadRun, runPlan } from "./orchestrator.js";
+import { planWithStrategist } from "./planner.js";
 import { buildWaves, validatePlan } from "./plan.js";
 import { ensureDir, writeJson } from "./utils.js";
 
-const BUILTIN_AGENT_ORDER = Object.freeze(["claude", "codex", "copilot"]);
 const DEFAULT_CONTEXT_PATHS = Object.freeze([
   "AGENTS.md",
   ".strategos/context.md",
@@ -17,67 +17,6 @@ const DEFAULT_CONTEXT_PATHS = Object.freeze([
 
 function writeLine(output, text = "") {
   output.write(`${text}\n`);
-}
-
-function orderedAgents(agents) {
-  const unique = [...new Set(agents)];
-  return [
-    ...BUILTIN_AGENT_ORDER.filter((agent) => unique.includes(agent)),
-    ...unique.filter((agent) => !BUILTIN_AGENT_ORDER.includes(agent)).sort(),
-  ];
-}
-
-export function createStarterPlan(goal, availableAgents) {
-  const normalizedGoal = goal.trim();
-  if (!normalizedGoal) throw new Error("goal cannot be empty");
-  const agents = orderedAgents(availableAgents);
-  if (agents.length === 0) throw new Error("no available agent CLI was detected");
-
-  const primary = agents.find((agent) => agent !== "copilot") || agents[0];
-  const primaryMode = primary === "copilot" ? "read-only" : "write";
-  const tasks = [
-    {
-      id: "implementation",
-      agent: primary,
-      mode: primaryMode,
-      prompt:
-        primaryMode === "write"
-          ? `Implement this goal: ${normalizedGoal}. Keep the change focused, follow repository guidance, and run relevant checks.`
-          : `Analyze this goal and produce an implementation plan: ${normalizedGoal}. Do not modify files.`,
-      dependsOn: [],
-    },
-  ];
-
-  const unused = agents.filter((agent) => agent !== primary);
-  if (unused.length >= 2) {
-    const testAgent =
-      unused.includes("codex") ? "codex" : unused.find((agent) => agent !== "copilot") || unused[0];
-    tasks.push({
-      id: "tests",
-      agent: testAgent,
-      mode: "write",
-      prompt: `Independently add focused tests and edge-case coverage for this goal: ${normalizedGoal}. Follow the documented contract and run relevant checks.`,
-      dependsOn: [],
-    });
-    const reviewer = unused.find((agent) => agent !== testAgent);
-    tasks.push({
-      id: "review",
-      agent: reviewer,
-      mode: "read-only",
-      prompt: `Review the completed implementation and test reports for this goal: ${normalizedGoal}. Identify correctness, integration, security, and compatibility risks. Do not modify files.`,
-      dependsOn: ["implementation", "tests"],
-    });
-  } else if (unused.length === 1) {
-    tasks.push({
-      id: "review",
-      agent: unused[0],
-      mode: "read-only",
-      prompt: `Review the completed implementation report for this goal: ${normalizedGoal}. Identify correctness, integration, security, and compatibility risks. Do not modify files.`,
-      dependsOn: ["implementation"],
-    });
-  }
-
-  return { version: 1, goal: normalizedGoal, context: [], tasks };
 }
 
 export function formatPlan(plan) {
@@ -139,7 +78,9 @@ function formatEvent(event) {
 
 function consoleHelp() {
   return `Commands:
-  /new [goal]     Propose a new starter strategy
+  /new [goal]     Ask the strategist to create a new plan
+  /strategist [agent]
+                  Show or select the planning CLI for this session
   /plan           Show the current plan
   /load <file>    Load and validate a JSON plan
   /save [file]    Save the current plan for editing or version control
@@ -153,7 +94,7 @@ function consoleHelp() {
   /help           Show this help
   /exit           Exit Strategos
 
-Enter ordinary text to propose a strategy for that goal.`;
+Enter ordinary text to ask the strategist CLI to create a task graph.`;
 }
 
 function safeRepoPath(root, input) {
@@ -192,21 +133,33 @@ export async function startConsole(options) {
   const loadConfigFn = options.loadConfigFn || loadConfig;
   const runDoctorFn = options.runDoctorFn || runDoctor;
   const runPlanFn = options.runPlanFn || runPlan;
+  const planWithStrategistFn = options.planWithStrategistFn || planWithStrategist;
   const loadRunFn = options.loadRunFn || loadRun;
   const initializeProjectFn = options.initializeProjectFn || initializeProject;
   let config = await loadConfigFn(root);
   let checks = await runDoctorFn(config, root);
   let currentPlan;
+  let planningController;
   let shouldExit = false;
+  const configuredAgents = () => Object.keys(config.agents || {});
+  const availableAgents = () =>
+    checks
+      .filter((check) => check.ok && configuredAgents().includes(check.name))
+      .map((check) => check.name);
+  let currentStrategist = config.strategist || "codex";
+  if (!availableAgents().includes(currentStrategist) && availableAgents().length) {
+    currentStrategist = availableAgents()[0];
+  }
 
   writeLine(output, `Strategos ${version}`);
   writeLine(output, `Project: ${path.basename(root)}`);
   writeLine(output, `Path: ${root}`);
+  writeLine(output, `Strategist: ${currentStrategist}`);
   writeLine(output);
   writeLine(output, formatDoctor(checks));
   writeLine(output);
   writeLine(output, "What do you want to accomplish?");
-  writeLine(output, "Enter a goal, or use /help for commands.");
+  writeLine(output, "Enter a goal to ask the strategist, or use /help for commands.");
 
   const rl = readline.createInterface({
     input,
@@ -219,21 +172,40 @@ export async function startConsole(options) {
     rl.setPrompt("strategos › ");
     rl.prompt();
     rl.on("SIGINT", () => {
+      if (planningController) {
+        writeLine(output, "\nCancelling strategist...");
+        planningController.abort();
+        return;
+      }
       writeLine(output, "\nUse /exit to leave Strategos.");
       rl.prompt();
     });
   }
 
-  const configuredAgents = () => Object.keys(config.agents || {});
-  const availableAgents = () =>
-    checks
-      .filter((check) => check.ok && configuredAgents().includes(check.name))
-      .map((check) => check.name);
-
-  const propose = (goal) => {
-    currentPlan = validatePlan(createStarterPlan(goal, availableAgents()), configuredAgents());
+  const propose = async (goal) => {
+    const healthyAgents = availableAgents();
+    if (!healthyAgents.includes(currentStrategist)) {
+      throw new Error(`strategist ${currentStrategist} is unavailable; use /strategist <agent>`);
+    }
+    const otherAgents = healthyAgents.filter((agent) => agent !== currentStrategist);
+    const workerAgents = otherAgents.length ? otherAgents : [currentStrategist];
+    currentPlan = undefined;
+    writeLine(output, `Asking ${currentStrategist} to plan in read-only mode...`);
+    planningController = new AbortController();
+    try {
+      currentPlan = await planWithStrategistFn({
+        root,
+        config,
+        goal,
+        strategist: currentStrategist,
+        workerAgents,
+        signal: planningController.signal,
+      });
+    } finally {
+      planningController = undefined;
+    }
     writeLine(output);
-    writeLine(output, "Proposed starter strategy (review before running):");
+    writeLine(output, `Proposed by ${currentStrategist} (review before running):`);
     writeLine(output, formatPlan(currentPlan));
     writeLine(output);
     writeLine(output, "Next: /preview, /run, /save, or enter a different goal.");
@@ -257,10 +229,27 @@ export async function startConsole(options) {
       return;
     }
     if (name === "new") {
-      if (argument) propose(argument);
+      if (argument) await propose(argument);
       else {
         writeLine(output, "Describe the new goal on the next line.");
       }
+      return;
+    }
+    if (name === "strategist") {
+      if (!argument) {
+        writeLine(output, `Strategist: ${currentStrategist}`);
+        return;
+      }
+      if (!configuredAgents().includes(argument)) {
+        throw new Error(`agent is not configured: ${argument}`);
+      }
+      if (!availableAgents().includes(argument)) {
+        throw new Error(`agent CLI is unavailable: ${argument}`);
+      }
+      currentStrategist = argument;
+      currentPlan = undefined;
+      writeLine(output, `Strategist: ${currentStrategist}`);
+      writeLine(output, "Enter a goal to generate a new plan.");
       return;
     }
     if (name === "plan") {
@@ -339,7 +328,7 @@ export async function startConsole(options) {
     try {
       if (!line) continue;
       if (line.startsWith("/")) await handleCommand(line);
-      else propose(line);
+      else await propose(line);
     } catch (error) {
       writeLine(output, `Error: ${error.message}`);
     }
