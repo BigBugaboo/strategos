@@ -49,12 +49,52 @@ use `fnm`, run `fnm use` in the repository to select the pinned major version.
 These versions are the current validation baseline, not hard pins. See
 [COMPATIBILITY.md](COMPATIBILITY.md) for the support and upgrade policy.
 
+### Start the interactive console
+
+The recommended human workflow is to launch Strategos inside a Git repository
+and enter a development goal:
+
+```bash
+cd /path/to/your/repository
+strategos
+```
+
+```text
+Strategos 0.3.0
+Agents: ✓ Claude  ✓ Codex  ✓ Copilot
+
+What do you want to accomplish?
+> Add CSV export and focused tests
+
+Wave 1: implementation, tests
+Wave 2: review
+```
+
+Ordinary text proposes a starter task graph using the available agent CLIs.
+The plan is deterministic and must be reviewed; no agent runs until the user
+enters `/run`. Useful console commands include:
+
+```text
+/new [goal]   /plan      /load <file>  /save [file]
+/preview      /run       /status [id]  /agents
+/context      /init      /help         /exit
+```
+
+See [docs/interactive-console.md](docs/interactive-console.md) for the complete
+workflow and current boundaries.
+
 ### Run directly with `npx`
 
 The fastest first run requires no clone or global installation:
 
 ```bash
 cd /path/to/your/repository
+npx --yes github:BigBugaboo/strategos
+```
+
+Non-interactive commands remain available when needed:
+
+```bash
 npx --yes github:BigBugaboo/strategos init
 npx --yes github:BigBugaboo/strategos doctor
 npx --yes github:BigBugaboo/strategos run .strategos/example-plan.json --dry-run
@@ -228,8 +268,8 @@ See [docs/architecture.md](docs/architecture.md) and
 
 Likely next steps:
 
-1. Interactive planner that proposes a task graph for human approval.
-2. Streaming status UI and resumable process sessions.
+1. LLM-assisted planning as an optional replacement for the deterministic starter strategy.
+2. Resumable process sessions, cancellation, and richer terminal rendering.
 3. Optional Docker/OS sandbox profiles.
 4. Cross-agent messaging through a typed local protocol.
 5. Test-gated merge queue with an explicit approval step.

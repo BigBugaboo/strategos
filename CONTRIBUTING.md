@@ -27,6 +27,12 @@ npm start -- --help
 npm run doctor
 ```
 
+Smoke-test the interactive console without starting agents:
+
+```bash
+printf '/help\n/exit\n' | npm start
+```
+
 To exercise `strategos` as a global command against another local repository,
 link it from the active Node.js environment:
 
@@ -43,6 +49,9 @@ Before changing the tested CLI baseline, follow [docs/upgrading.md](docs/upgradi
 and update `COMPATIBILITY.md` in the same pull request. Upgrade behavior must
 remain non-destructive for source checkouts, npm links, npx caches, and
 project-local installations.
+
+Interactive changes must preserve the explicit `/run` approval boundary and
+keep every existing non-interactive subcommand suitable for scripts and CI.
 
 ## Project language
 

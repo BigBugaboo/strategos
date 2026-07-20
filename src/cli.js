@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { initializeProject, loadConfig } from "./config.js";
+import { startConsole } from "./console.js";
 import { runDoctor } from "./doctor.js";
 import { findRepoRoot } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
@@ -17,11 +18,16 @@ function help() {
   return `Strategos ${VERSION} — local-first coding-agent orchestration
 
 Usage:
+  strategos
   strategos init [path]
   strategos doctor [--json]
   strategos upgrade [--dry-run]
   strategos run <plan.json> [--dry-run] [--max-parallel N]
   strategos status [run-id] [--json]
+
+Interactive mode:
+  Run strategos without a subcommand, enter a development goal, review the
+  proposed task graph, then use /preview or /run.
 
 Core model:
   A JSON task graph assigns work to Claude Code, Codex CLI, or Copilot CLI.
@@ -69,7 +75,12 @@ function printRun(manifest) {
 
 export async function main(args) {
   const command = args[0];
-  if (!command || command === "help" || hasFlag(args, "--help") || hasFlag(args, "-h")) {
+  if (!command) {
+    const root = await findRepoRoot(process.cwd());
+    await startConsole({ root, version: VERSION });
+    return;
+  }
+  if (command === "help" || hasFlag(args, "--help") || hasFlag(args, "-h")) {
     console.log(help());
     return;
   }
