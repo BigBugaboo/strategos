@@ -15,6 +15,10 @@ changes without review.
 
 ## Engineering rules
 
+- Use English for commit messages, branch names, identifiers, source-code
+  comments, technical documentation, issues, pull requests, and review comments.
+  Localized user-facing documentation such as `README.zh-CN.md` is the explicit
+  exception.
 - Keep the runtime dependency-free unless a dependency removes substantial,
   well-tested complexity.
 - Pass subprocess arguments as arrays. Never build shell command strings from

@@ -35,19 +35,48 @@ Strategos provides a small neutral layer:
 
 ## Quick start
 
-Requirements: Node.js 18.18+, Git, and at least one supported agent CLI.
+Requirements: Node.js 24+, Git, and at least one supported agent CLI. If you
+use `fnm`, run `fnm use` in the repository to select the pinned major version.
+
+### Tested CLI baseline
+
+| CLI | Tested version |
+| --- | ---: |
+| Claude Code | `2.1.215` |
+| OpenAI Codex CLI | `0.144.6` |
+| GitHub Copilot CLI | `1.0.71` |
+
+These versions are the current validation baseline, not hard pins. See
+[COMPATIBILITY.md](COMPATIBILITY.md) for the support and upgrade policy.
+
+### Install the CLI from source
 
 ```bash
 git clone https://github.com/BigBugaboo/strategos.git
 cd strategos
-npm link
+fnm use 24 # optional when Node.js 24 is already active
+npm install
+npm install -g .
+strategos --help
+```
 
+Global npm packages belong to the currently active Node.js installation. If
+you use `fnm`, Vite+, `nvm`, or another version manager, install Strategos from
+the same shell environment in which you plan to run it.
+
+### Initialize a target repository
+
+```bash
 cd /path/to/your/repository
 strategos init
 strategos doctor
 ```
 
-Edit `.strategos/example-plan.json`, commit the Strategos configuration, then:
+`strategos init` creates `.strategos/config.json`, shared context and memory
+files, an example plan, and `AGENTS.md` without overwriting existing files.
+Edit those files and commit the configuration before starting a real run.
+
+### Preview and run a plan
 
 ```bash
 strategos run .strategos/example-plan.json --dry-run
@@ -57,6 +86,24 @@ strategos status
 
 Strategos requires a clean repository before a real run because new worktrees
 start from the committed `HEAD`, not from uncommitted files.
+
+### Troubleshoot `command not found`
+
+Check that the active Node.js environment owns the installation and exposes
+its global binary directory:
+
+```bash
+node --version
+npm prefix -g
+npm install -g /absolute/path/to/strategos
+rehash # zsh only
+command -v strategos
+strategos --help
+```
+
+For development, use `npm link` instead of `npm install -g .` so the global
+command follows changes in the checkout. Run `npm link` again after switching
+to a different Node.js installation.
 
 ## Plan example
 
