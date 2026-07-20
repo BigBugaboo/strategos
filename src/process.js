@@ -5,6 +5,7 @@ export function runCommand(command, args = [], options = {}) {
     cwd,
     env = process.env,
     input,
+    signal: abortSignal,
     timeoutMs = 0,
     maxOutputBytes = 8 * 1024 * 1024,
   } = options;
@@ -15,6 +16,7 @@ export function runCommand(command, args = [], options = {}) {
     let stderr = "";
     let outputBytes = 0;
     let timedOut = false;
+    let aborted = false;
     let timer;
     let forceKillTimer;
 
@@ -25,12 +27,19 @@ export function runCommand(command, args = [], options = {}) {
       stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
 
+    const abort = () => {
+      aborted = true;
+      child.kill("SIGTERM");
+      forceKillTimer ||= setTimeout(() => child.kill("SIGKILL"), 5_000);
+    };
+
     const finish = (result) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
       if (forceKillTimer) clearTimeout(forceKillTimer);
-      resolve({ stdout, stderr, timedOut, ...result });
+      if (abortSignal) abortSignal.removeEventListener("abort", abort);
+      resolve({ stdout, stderr, timedOut, aborted, ...result });
     };
 
     const collect = (kind, chunk) => {
@@ -49,6 +58,11 @@ export function runCommand(command, args = [], options = {}) {
     child.stderr.on("data", (chunk) => collect("stderr", chunk));
     child.on("error", (error) => finish({ code: 127, signal: null, error }));
     child.on("close", (code, signal) => finish({ code: code ?? 1, signal, error: null }));
+
+    if (abortSignal) {
+      if (abortSignal.aborted) abort();
+      else abortSignal.addEventListener("abort", abort, { once: true });
+    }
 
     if (input !== undefined) {
       child.stdin.end(input);

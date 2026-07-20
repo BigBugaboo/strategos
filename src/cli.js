@@ -1,25 +1,37 @@
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { initializeProject, loadConfig } from "./config.js";
+import { startConsole } from "./console.js";
 import { runDoctor } from "./doctor.js";
 import { findRepoRoot } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
+import { formatUpgradeResult, upgradeStrategos } from "./upgrade.js";
 import { parsePositiveInteger } from "./utils.js";
 
-const VERSION = "0.1.0";
+const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
+const VERSION = JSON.parse(readFileSync(packagePath, "utf8")).version;
 
 function help() {
   return `Strategos ${VERSION} — local-first coding-agent orchestration
 
 Usage:
+  strategos
   strategos init [path]
   strategos doctor [--json]
+  strategos upgrade [--dry-run]
   strategos run <plan.json> [--dry-run] [--max-parallel N]
   strategos status [run-id] [--json]
 
+Interactive mode:
+  Run strategos without a subcommand. A selected agent CLI plans in read-only
+  mode; review its task graph, then use /preview or /run.
+
 Core model:
-  A JSON task graph assigns work to Claude Code, Codex CLI, or Copilot CLI.
+  Strategos has no model API. One installed CLI produces a JSON task graph for
+  other installed CLIs through the local adapter and authentication boundary.
   Every runnable task gets an isolated Git worktree and a durable report.
   Strategos does not merge or push generated branches automatically.
 `;
@@ -64,7 +76,12 @@ function printRun(manifest) {
 
 export async function main(args) {
   const command = args[0];
-  if (!command || command === "help" || hasFlag(args, "--help") || hasFlag(args, "-h")) {
+  if (!command) {
+    const root = await findRepoRoot(process.cwd());
+    await startConsole({ root, version: VERSION });
+    return;
+  }
+  if (command === "help" || hasFlag(args, "--help") || hasFlag(args, "-h")) {
     console.log(help());
     return;
   }
@@ -93,6 +110,15 @@ export async function main(args) {
     if (hasFlag(args, "--json")) console.log(JSON.stringify(checks, null, 2));
     else printDoctor(checks);
     if (checks.some((check) => !check.ok)) process.exitCode = 2;
+    return;
+  }
+
+  if (command === "upgrade" || command === "update") {
+    const result = await upgradeStrategos({
+      dryRun: hasFlag(args, "--dry-run"),
+      entrypoint: process.argv[1],
+    });
+    console.log(formatUpgradeResult(result));
     return;
   }
 

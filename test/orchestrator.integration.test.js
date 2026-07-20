@@ -51,7 +51,8 @@ test("runs independent custom workers in isolated worktrees and preserves report
     ],
   };
 
-  const result = await runPlan({ root, config, planInput });
+  const events = [];
+  const result = await runPlan({ root, config, planInput, onEvent: (event) => events.push(event) });
   assert.equal(result.manifest.status, "succeeded");
   assert.equal(result.manifest.tasks.one.status, "succeeded");
   assert.equal(result.manifest.tasks.two.status, "succeeded");
@@ -60,6 +61,16 @@ test("runs independent custom workers in isolated worktrees and preserves report
   assert.match(
     await fs.readFile(path.join(root, result.manifest.tasks.one.artifactDir, "report.md"), "utf8"),
     /completed one/,
+  );
+  assert.equal(events[0].type, "run_started");
+  assert.equal(events.at(-1).type, "run_finished");
+  assert.deepEqual(
+    events.filter((event) => event.type === "task_started").map((event) => event.task.id),
+    ["one", "two", "review"],
+  );
+  assert.deepEqual(
+    events.filter((event) => event.type === "task_finished").map((event) => event.task.id),
+    ["one", "two", "review"],
   );
 });
 

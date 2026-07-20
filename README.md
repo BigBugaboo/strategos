@@ -22,8 +22,8 @@ Strategos provides a small neutral layer:
 
 - **Shared context** compiled from `AGENTS.md`, project context, team memory,
   task-specific files, and completed dependency reports.
-- **Explicit task graph** with dependencies rather than an opaque LLM deciding
-  everything at runtime.
+- **CLI-generated task graph** produced by one read-only strategist CLI, then
+  schema-checked and shown before worker execution.
 - **Parallel waves** capped by a configurable concurrency limit.
 - **Worktree isolation** for every task, including independent branches.
 - **Provider adapters** for `claude`, `codex`, and `copilot` commands already
@@ -49,20 +49,93 @@ use `fnm`, run `fnm use` in the repository to select the pinned major version.
 These versions are the current validation baseline, not hard pins. See
 [COMPATIBILITY.md](COMPATIBILITY.md) for the support and upgrade policy.
 
-### Install the CLI from source
+### Start the interactive console
+
+The recommended human workflow is to launch Strategos inside a Git repository
+and enter a development goal:
 
 ```bash
-git clone https://github.com/BigBugaboo/strategos.git
-cd strategos
-fnm use 24 # optional when Node.js 24 is already active
-npm install
-npm install -g .
+cd /path/to/your/repository
+strategos
+```
+
+```text
+Strategos 0.4.0
+Strategist: codex
+Agents: ✓ Claude  ✓ Codex  ✓ Copilot
+
+What do you want to accomplish?
+> Add CSV export and focused tests
+
+Asking codex to plan in read-only mode...
+Proposed by codex (review before running):
+Wave 1: implementation
+Wave 2: review
+```
+
+Ordinary text immediately asks the configured strategist CLI to inspect the
+repository in read-only mode and return a JSON task graph for the other healthy
+agent CLIs. Strategos uses no model SDK, API key, or embedded AI provider. It
+validates and displays the plan, but creates no worker worktree and starts no
+worker until the user enters `/run`. Press `Ctrl+C` to cancel a slow planning
+call. Useful console commands include:
+
+```text
+/new [goal]   /strategist [agent]  /plan       /load <file>
+/save [file]  /preview               /run        /status [id]
+/agents       /context               /init       /help       /exit
+```
+
+See [docs/interactive-console.md](docs/interactive-console.md) for the complete
+workflow and current boundaries.
+
+### Run directly with `npx`
+
+The fastest first run requires no clone or global installation:
+
+```bash
+cd /path/to/your/repository
+npx --yes github:BigBugaboo/strategos
+```
+
+Non-interactive commands remain available when needed:
+
+```bash
+npx --yes github:BigBugaboo/strategos init
+npx --yes github:BigBugaboo/strategos doctor
+npx --yes github:BigBugaboo/strategos run .strategos/example-plan.json --dry-run
+```
+
+Until Strategos has a published npm release, `npx` installs the package from
+the GitHub default branch and reuses the npm cache on later runs.
+
+### Install persistently from GitHub
+
+Install a reusable `strategos` command without manually cloning the repository:
+
+```bash
+npm install --global github:BigBugaboo/strategos
 strategos --help
 ```
 
 Global npm packages belong to the currently active Node.js installation. If
 you use `fnm`, Vite+, `nvm`, or another version manager, install Strategos from
 the same shell environment in which you plan to run it.
+
+### Install from a source checkout
+
+```bash
+git clone https://github.com/BigBugaboo/strategos.git
+cd strategos
+fnm use --install-if-missing # optional when Node.js 24 is already active
+npm ci
+npm run verify
+npm link
+strategos --help
+```
+
+Use this linked mode when contributing: the global command follows changes in
+the checkout without requiring a reinstall.
 
 ### Initialize a target repository
 
@@ -101,9 +174,30 @@ command -v strategos
 strategos --help
 ```
 
-For development, use `npm link` instead of `npm install -g .` so the global
-command follows changes in the checkout. Run `npm link` again after switching
-to a different Node.js installation.
+For development, run `npm link` again after switching to a different Node.js
+installation.
+
+### Upgrade Strategos
+
+Inspect the detected installation mode without changing anything:
+
+```bash
+strategos upgrade --dry-run
+```
+
+Then upgrade a persistent global npm installation:
+
+```bash
+strategos upgrade
+strategos --version
+strategos doctor
+```
+
+`strategos update` is an alias. Source checkouts, `npm link`, temporary `npx`
+packages, and project-local dependencies are not overwritten automatically;
+the command prints the safe update steps for the detected mode. See
+[docs/upgrading.md](docs/upgrading.md) for recovery, pinning, and agent CLI
+upgrade workflows.
 
 ## Plan example
 
@@ -180,12 +274,11 @@ See [docs/architecture.md](docs/architecture.md) and
 
 Likely next steps:
 
-1. Interactive planner that proposes a task graph for human approval.
-2. Streaming status UI and resumable process sessions.
-3. Optional Docker/OS sandbox profiles.
-4. Cross-agent messaging through a typed local protocol.
-5. Test-gated merge queue with an explicit approval step.
-6. MCP server so any supported agent can operate Strategos as a tool.
+1. Resumable process sessions, cancellation, and richer terminal rendering.
+2. Optional Docker/OS sandbox profiles.
+3. Cross-agent messaging through a typed local protocol.
+4. Test-gated merge queue with an explicit approval step.
+5. MCP server so any supported agent can operate Strategos as a tool.
 
 ## Inspiration
 

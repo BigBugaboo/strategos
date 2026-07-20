@@ -15,17 +15,22 @@ development checkout:
 ```bash
 git clone https://github.com/BigBugaboo/strategos.git
 cd strategos
-fnm use 24 # optional when Node.js 24 is already active
-npm install
-npm run check
-npm test
+fnm use --install-if-missing # optional when Node.js 24 is already active
+npm ci
+npm run verify
 ```
 
 Run the CLI directly while developing:
 
 ```bash
-node ./bin/strategos.js --help
-node ./bin/strategos.js doctor
+npm start -- --help
+npm run doctor
+```
+
+Smoke-test the interactive console without starting agents:
+
+```bash
+printf '/help\n/exit\n' | npm start
 ```
 
 To exercise `strategos` as a global command against another local repository,
@@ -39,6 +44,17 @@ strategos --help
 Version managers keep global packages isolated. Repeat `npm link` after
 switching Node.js installations. Use `npm unlink -g strategos-cli` to remove
 the development link.
+
+Before changing the tested CLI baseline, follow [docs/upgrading.md](docs/upgrading.md)
+and update `COMPATIBILITY.md` in the same pull request. Upgrade behavior must
+remain non-destructive for source checkouts, npm links, npx caches, and
+project-local installations.
+
+Interactive changes must preserve the explicit `/run` approval boundary and
+keep every existing non-interactive subcommand suitable for scripts and CI.
+Strategist calls must remain read-only, use existing CLI authentication, and
+return plans through the validated JSON contract. Tests must stub strategist
+processes instead of consuming contributor model quota.
 
 ## Project language
 

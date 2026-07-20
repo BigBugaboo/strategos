@@ -4,6 +4,9 @@ import { ensureDir, readJson, writeJson } from "./utils.js";
 
 export const DEFAULT_CONFIG = Object.freeze({
   maxParallel: 3,
+  strategist: "codex",
+  planningTimeoutMinutes: 5,
+  maxPlanningTasks: 12,
   baseRef: "HEAD",
   worktreeRoot: "../.strategos-worktrees",
   maxContextBytes: 64_000,
