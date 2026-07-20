@@ -10,7 +10,8 @@
     "start": "node ./bin/strategos.js",
     "doctor": "node ./bin/strategos.js doctor",
     "check": "node --check ./bin/strategos.js && node --check ./src/cli.js && node --check ./src/orchestrator.js",
-    "test": "node --test"
+    "test": "node --test",
+    "verify": "npm run check && npm test"
   },
   "engines": {
     "node": ">=24"

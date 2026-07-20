@@ -15,17 +15,16 @@ development checkout:
 ```bash
 git clone https://github.com/BigBugaboo/strategos.git
 cd strategos
-fnm use 24 # optional when Node.js 24 is already active
-npm install
-npm run check
-npm test
+fnm use --install-if-missing # optional when Node.js 24 is already active
+npm ci
+npm run verify
 ```
 
 Run the CLI directly while developing:
 
 ```bash
-node ./bin/strategos.js --help
-node ./bin/strategos.js doctor
+npm start -- --help
+npm run doctor
 ```
 
 To exercise `strategos` as a global command against another local repository,

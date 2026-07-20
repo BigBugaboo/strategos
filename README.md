@@ -49,20 +49,47 @@ use `fnm`, run `fnm use` in the repository to select the pinned major version.
 These versions are the current validation baseline, not hard pins. See
 [COMPATIBILITY.md](COMPATIBILITY.md) for the support and upgrade policy.
 
-### Install the CLI from source
+### Run directly with `npx`
+
+The fastest first run requires no clone or global installation:
 
 ```bash
-git clone https://github.com/BigBugaboo/strategos.git
-cd strategos
-fnm use 24 # optional when Node.js 24 is already active
-npm install
-npm install -g .
+cd /path/to/your/repository
+npx --yes github:BigBugaboo/strategos init
+npx --yes github:BigBugaboo/strategos doctor
+npx --yes github:BigBugaboo/strategos run .strategos/example-plan.json --dry-run
+```
+
+Until Strategos has a published npm release, `npx` installs the package from
+the GitHub default branch and reuses the npm cache on later runs.
+
+### Install persistently from GitHub
+
+Install a reusable `strategos` command without manually cloning the repository:
+
+```bash
+npm install --global github:BigBugaboo/strategos
 strategos --help
 ```
 
 Global npm packages belong to the currently active Node.js installation. If
 you use `fnm`, Vite+, `nvm`, or another version manager, install Strategos from
 the same shell environment in which you plan to run it.
+
+### Install from a source checkout
+
+```bash
+git clone https://github.com/BigBugaboo/strategos.git
+cd strategos
+fnm use --install-if-missing # optional when Node.js 24 is already active
+npm ci
+npm run verify
+npm link
+strategos --help
+```
+
+Use this linked mode when contributing: the global command follows changes in
+the checkout without requiring a reinstall.
 
 ### Initialize a target repository
 
@@ -101,9 +128,8 @@ command -v strategos
 strategos --help
 ```
 
-For development, use `npm link` instead of `npm install -g .` so the global
-command follows changes in the checkout. Run `npm link` again after switching
-to a different Node.js installation.
+For development, run `npm link` again after switching to a different Node.js
+installation.
 
 ## Plan example
 
