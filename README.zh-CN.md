@@ -48,7 +48,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.7.0
+STRATEGOS v0.7.1
 Multi-agent strategy console · codex plans
 ~/你的/项目目录
 
@@ -76,7 +76,8 @@ Executing  Starting the current plan...
 Strategos 自身不接入模型 SDK、模型 API 或额外密钥。默认 `auto` 执行模式会
 校验并展示 preview，随后立即创建 worker worktree 并运行任务。如果希望先人工
 检查，可在输入目标前执行 `/mode manual`，之后再用 `/run` 批准执行。规划过程中
-按 `Ctrl+C` 会取消当前 strategist 调用；空闲时按 `Ctrl+C` 会退出指令台。常用命令：
+第一次按 `Ctrl+C` 只会提示中断风险，三秒内再次按下才会取消 strategist 调用；
+空闲时按 `Ctrl+C` 会退出指令台。常用命令：
 
 ```text
 /new [目标]   /mode [auto|manual]  /strategist [agent]  /plan

@@ -338,24 +338,27 @@ test("Ctrl+C exits an idle interactive console", async () => {
   assert.doesNotMatch(output, /Use \/exit to leave Strategos/);
 });
 
-test("Ctrl+C cancels active planning without closing the console", async () => {
+test("Ctrl+C requires confirmation before cancelling active planning", async () => {
   const input = new PassThrough();
   const captured = captureOutput();
+  let planningSignal;
   let planningStarted;
   const started = new Promise((resolve) => {
     planningStarted = resolve;
   });
   const options = consoleOptions(input, captured.output, {
     env: { TERM: "xterm-256color" },
-    planWithStrategistFn: async ({ signal }) =>
-      new Promise((resolve, reject) => {
+    planWithStrategistFn: async ({ signal }) => {
+      planningSignal = signal;
+      return new Promise((resolve, reject) => {
         planningStarted();
         signal.addEventListener(
           "abort",
           () => reject(new Error("codex planning cancelled")),
           { once: true },
         );
-      }),
+      });
+    },
   });
   input.isTTY = true;
   captured.output.isTTY = true;
@@ -364,6 +367,13 @@ test("Ctrl+C cancels active planning without closing the console", async () => {
   const session = startConsole(options);
   input.write("Plan a release\n");
   await started;
+  input.write("\u0003");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(planningSignal.aborted, false);
+  assert.match(
+    stripAnsi(captured.read()),
+    /Press Ctrl\+C again within 3 seconds to interrupt planning/,
+  );
   input.write("\u0003");
   await new Promise((resolve) => setImmediate(resolve));
   input.end("/exit\n");

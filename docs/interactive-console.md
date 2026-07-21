@@ -36,9 +36,11 @@ embedding a model provider:
 Strategos contains no model SDK, model API integration, or provider key. A goal
 does consume one planning call through the selected CLI, but planning creates
 no worktree and grants no write permission. Invalid or failed strategist output
-is reported as an error rather than replaced with a hidden local plan. Press
-`Ctrl+C` during planning to terminate that strategist process and return to the
-console. When no planning call is active, `Ctrl+C` exits Strategos.
+is reported as an error rather than replaced with a hidden local plan. The
+first `Ctrl+C` during planning warns that interruption will cancel the task;
+press it again within three seconds to terminate the strategist process and
+return to the console. When no planning call is active, `Ctrl+C` exits
+Strategos.
 
 The default can be changed in `.strategos/config.json`:
 
