@@ -173,6 +173,8 @@ export async function startConsole(options) {
   let checks = await runDoctorFn(config, root);
   let currentPlan;
   let planningController;
+  let planningInterruptArmed = false;
+  let planningInterruptTimer;
   let executionActive = false;
   let shouldExit = false;
   let currentExecutionMode = normalizeExecutionMode(config.executionMode);
@@ -223,9 +225,25 @@ export async function startConsole(options) {
     rl.setPrompt(ui.prompt);
     rl.prompt();
   };
+  const resetPlanningInterrupt = () => {
+    planningInterruptArmed = false;
+    if (planningInterruptTimer) clearTimeout(planningInterruptTimer);
+    planningInterruptTimer = undefined;
+  };
   if (interactive) {
     rl.on("SIGINT", () => {
       if (planningController) {
+        if (!planningInterruptArmed) {
+          planningInterruptArmed = true;
+          writeLine(
+            output,
+            `\n${ui.warning("Press Ctrl+C again within 3 seconds to interrupt planning.")}`,
+          );
+          planningInterruptTimer = setTimeout(resetPlanningInterrupt, 3_000);
+          planningInterruptTimer.unref?.();
+          return;
+        }
+        resetPlanningInterrupt();
         writeLine(output, `\n${ui.warning("Cancelling strategist...")}`);
         planningController.abort();
         return;
@@ -298,6 +316,7 @@ export async function startConsole(options) {
         signal: planningController.signal,
       });
     } finally {
+      resetPlanningInterrupt();
       planningController = undefined;
     }
     writeLine(output);

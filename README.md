@@ -64,7 +64,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.7.0
+STRATEGOS v0.7.1
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -93,8 +93,9 @@ worker tasks after planning. Strategos uses no model SDK, API key, or embedded
 AI provider. The default `auto` execution mode validates and previews the plan,
 then immediately starts its worker tasks. Use `/mode manual` before entering a
 goal when you want the console to stop for review and wait for `/run`. Press
-`Ctrl+C` to cancel a slow planning call; press it while idle to exit the
-console. Useful console commands include:
+`Ctrl+C` once during planning to show an interruption warning, then press it
+again within three seconds to cancel the strategist call. Press it while idle
+to exit the console. Useful console commands include:
 
 ```text
 /new [goal]   /mode [auto|manual]  /strategist [agent]  /plan
