@@ -34,6 +34,8 @@ Strategos provides a small neutral layer:
   worker pool after planning; strict role separation remains configurable.
 - **Automatic execution by default**: each generated plan is previewed and then
   run immediately; `/mode manual` restores an explicit execution gate.
+- **Durable recovery context**: goals, plans, progress, and failures are
+  checkpointed locally so `/resume` can give a strategist the prior context.
 - **Parallel waves** capped by a configurable concurrency limit.
 - **Worktree isolation** for every task, including independent branches.
 - **Provider adapters** for `claude`, `codex`, and `copilot` commands already
@@ -90,7 +92,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.7.1
+STRATEGOS v0.8.0
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -121,13 +123,17 @@ then immediately starts its worker tasks. Use `/mode manual` before entering a
 goal when you want the console to stop for review and wait for `/run`. Press
 `Ctrl+C` once during planning to show an interruption warning, then press it
 again within three seconds to cancel the strategist call. Press it while idle
-to exit the console. Useful console commands include:
+to exit the console. Interrupted or failed work remains in a local session
+journal. The next launch offers `/resume`, which asks the strategist to inspect
+the current repository with the saved goal, plan, task progress, and error
+before producing only the remaining work. Useful console commands include:
 
 ```text
 /new [goal]   /mode [auto|manual]  /strategist [agent]  /plan
 /load <file>
 /save [file]  /preview               /run        /status [id]
-/agents       /context               /init       /help       /exit
+/sessions     /resume [id]           /agents     /context
+/init         /help                  /exit
 ```
 
 See [docs/interactive-console.md](docs/interactive-console.md) for the complete

@@ -28,7 +28,8 @@ Usage:
 Interactive mode:
   Run strategos without a subcommand. A selected agent CLI plans in read-only
   mode. Auto mode previews and runs the plan; use /mode manual to pause before
-  worker execution.
+  worker execution. Interrupted work is journaled locally; use /resume in the
+  console to continue with the saved context.
 
 Core model:
   Strategos has no model API. One installed CLI produces a JSON task graph for
