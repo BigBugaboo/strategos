@@ -162,6 +162,8 @@ strategos web
 
 Open `http://127.0.0.1:4310`. The server binds to localhost by default. Use
 `--host` and `--port` only when you intentionally need a different interface.
+The production page does not include seeded demo data; it reads the current
+repository and its locally persisted Strategos sessions directly.
 
 The top bar shows the latest manually recorded CLI capacity. Because Claude,
 Codex, and Copilot do not expose one consistent machine-readable quota API,

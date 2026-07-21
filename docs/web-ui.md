@@ -22,6 +22,11 @@ process. Configuration remains in `.strategos/config.json`; durable sessions
 remain under the repository's Git metadata; run manifests remain in
 `.strategos/runs/`.
 
+The packaged UI contains no seeded demo sessions or quota fixtures. Repository
+identity, CLI health, capacity settings, session history, plans, task events,
+and changed files are loaded from the local Strategos API. A repository with no
+saved sessions opens in the empty New task state.
+
 ## Vite+ source workflow
 
 Install Vite+ once on macOS or Linux:
