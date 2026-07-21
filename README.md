@@ -62,7 +62,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.6.0
+STRATEGOS v0.6.1
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -87,7 +87,8 @@ repository in read-only mode and return a JSON task graph. In the default
 worker tasks after planning. Strategos uses no model SDK, API key, or embedded
 AI provider. It validates and displays the plan, but creates no worker worktree
 and starts no worker until the user enters `/run`. Press `Ctrl+C` to cancel a
-slow planning call. Useful console commands include:
+slow planning call; press it while idle to exit the console. Useful console
+commands include:
 
 ```text
 /new [goal]   /strategist [agent]  /plan       /load <file>

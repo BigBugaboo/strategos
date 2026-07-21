@@ -25,7 +25,7 @@ function captureOutput() {
 function consoleOptions(input, output, overrides = {}) {
   return {
     root: "/tmp/example-repository",
-    version: "0.6.0-test",
+    version: "0.6.1-test",
     input: typeof input === "string" ? Readable.from([input]) : input,
     output,
     loadConfigFn: async () => DEFAULT_CONFIG,
@@ -196,7 +196,7 @@ test("interactive console renders compact startup chrome", async () => {
   const output = captured.read();
   const plain = stripAnsi(output);
   assert.match(output, /\u001b\[/);
-  assert.match(plain, /STRATEGOS v0\.6\.0-test/);
+  assert.match(plain, /STRATEGOS v0\.6\.1-test/);
   assert.match(plain, /Agents\s+● claude\s+·\s+● codex\s+·\s+● copilot/);
   assert.match(plain, /\/help commands\s+·\s+\/strategist codex planner/);
   assert.doesNotMatch(plain, /Claude Code test/);
@@ -221,4 +221,61 @@ test("interactive console restores the prompt after an empty line", async () => 
 
   const output = stripAnsi(captured.read());
   assert.equal(output.split("─".repeat(72)).length - 1, 2);
+});
+
+test("Ctrl+C exits an idle interactive console", async () => {
+  const input = new PassThrough();
+  const captured = captureOutput();
+  const options = consoleOptions(input, captured.output, {
+    env: { TERM: "xterm-256color" },
+  });
+  input.isTTY = true;
+  captured.output.isTTY = true;
+  captured.output.columns = 72;
+
+  const session = startConsole(options);
+  await new Promise((resolve) => setImmediate(resolve));
+  input.write("\u0003");
+  await session;
+
+  const output = stripAnsi(captured.read());
+  assert.match(output, /Goodbye\./);
+  assert.doesNotMatch(output, /Use \/exit to leave Strategos/);
+});
+
+test("Ctrl+C cancels active planning without closing the console", async () => {
+  const input = new PassThrough();
+  const captured = captureOutput();
+  let planningStarted;
+  const started = new Promise((resolve) => {
+    planningStarted = resolve;
+  });
+  const options = consoleOptions(input, captured.output, {
+    env: { TERM: "xterm-256color" },
+    planWithStrategistFn: async ({ signal }) =>
+      new Promise((resolve, reject) => {
+        planningStarted();
+        signal.addEventListener(
+          "abort",
+          () => reject(new Error("codex planning cancelled")),
+          { once: true },
+        );
+      }),
+  });
+  input.isTTY = true;
+  captured.output.isTTY = true;
+  captured.output.columns = 72;
+
+  const session = startConsole(options);
+  input.write("Plan a release\n");
+  await started;
+  input.write("\u0003");
+  await new Promise((resolve) => setImmediate(resolve));
+  input.end("/exit\n");
+  await session;
+
+  const output = stripAnsi(captured.read());
+  assert.match(output, /Cancelling strategist/);
+  assert.match(output, /planning cancelled/);
+  assert.doesNotMatch(output, /Goodbye\./);
 });

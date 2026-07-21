@@ -37,7 +37,7 @@ does consume one planning call through the selected CLI, but planning creates
 no worktree and grants no write permission. Invalid or failed strategist output
 is reported as an error rather than replaced with a hidden local plan. Press
 `Ctrl+C` during planning to terminate that strategist process and return to the
-console.
+console. When no planning call is active, `Ctrl+C` exits Strategos.
 
 The default can be changed in `.strategos/config.json`:
 
@@ -77,7 +77,7 @@ control whether that selected CLI is also eligible for execution.
 | `/init` | Initialize Strategos without overwriting existing files. |
 | `/clear` | Clear an interactive terminal. |
 | `/help` | Show command help. |
-| `/exit` | Close the console. |
+| `/exit` | Close the console. Idle `Ctrl+C` is the keyboard equivalent. |
 
 ## Terminal presentation
 
