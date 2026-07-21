@@ -5,6 +5,7 @@ describe("capacity presentation", () => {
   it("labels exhausted and unknown capacity without inventing a percentage", () => {
     expect(quotaLabel({ state: "exhausted", remainingPercent: 0 })).toBe("No quota — off");
     expect(quotaLabel({ state: "unknown", remainingPercent: null })).toBe("Unknown");
+    expect(quotaLabel({ state: "unknown", remainingPercent: 72 })).toBe("Unknown");
   });
 
   it("returns only installed and eligible agents", () => {

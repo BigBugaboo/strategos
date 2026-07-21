@@ -153,7 +153,8 @@ Session；没有历史任务时会显示干净的新任务页面。
 顶部额度条来自 Settings 中手工维护的最新状态。Claude、Codex、Copilot
 目前没有统一、稳定、可机器读取的额度接口，因此 Strategos 不会虚构精确
 Token 数。把某个 CLI 标记为 `Exhausted` 后，它会同时从 strategist fallback
-和 worker 池中移除；`Unknown` 状态仍可使用。Auto 模式会展示计划后自动执行，
+和 worker 池中移除；额度缺失或无法读取时统一显示为 `Unknown`，并仍可使用。
+Auto 模式会展示计划后自动执行，
 Manual 模式会停在计划阶段等待点击 Run。Session 历史、图片上传、Resume、
 运行日志和文件变化均保留在本机。
 

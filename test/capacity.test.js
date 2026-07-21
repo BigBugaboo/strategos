@@ -25,6 +25,29 @@ test("capacity excludes exhausted CLIs while retaining unknown capacity", () => 
   assert.equal(normalizeCapacity(config).agents.codex.remainingPercent, null);
 });
 
+test("capacity falls back to unknown when no readable amount is available", () => {
+  const normalized = normalizeCapacity({
+    agents: { claude: {}, codex: {}, copilot: {} },
+    capacity: {
+      agents: {
+        claude: { state: "available", remainingPercent: null },
+        codex: { state: "unknown", remainingPercent: 72 },
+        copilot: { state: "exhausted", remainingPercent: null },
+      },
+    },
+  });
+  assert.deepEqual(normalized.agents.claude, {
+    state: "unknown",
+    remainingPercent: null,
+    resetsAt: null,
+    source: "unknown",
+  });
+  assert.equal(normalized.agents.codex.state, "unknown");
+  assert.equal(normalized.agents.codex.remainingPercent, null);
+  assert.equal(normalized.agents.copilot.state, "exhausted");
+  assert.equal(normalized.agents.copilot.remainingPercent, 0);
+});
+
 test("capacity summary combines installation and eligibility", () => {
   const summary = capacitySummary(config, [
     { name: "claude", ok: true, detail: "Claude Code" },
@@ -47,6 +70,11 @@ test("capacity settings are validated and normalized", () => {
   });
   assert.equal(updated.agents.claude.remainingPercent, 63);
   assert.equal(updated.agents.claude.source, "manual");
+  const unknown = mergeCapacitySettings(config, {
+    agents: { claude: { state: "available", remainingPercent: null } },
+  });
+  assert.equal(unknown.agents.claude.state, "unknown");
+  assert.equal(unknown.agents.claude.remainingPercent, null);
   assert.throws(() => mergeCapacitySettings(config, {
     agents: { claude: { state: "available", remainingPercent: 101 } },
   }), /between 0 and 100/);

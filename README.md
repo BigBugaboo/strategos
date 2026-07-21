@@ -178,7 +178,8 @@ The top bar shows the latest manually recorded CLI capacity. Because Claude,
 Codex, and Copilot do not expose one consistent machine-readable quota API,
 Strategos never invents exact token counts. Mark a CLI as `Exhausted` in
 Settings and it is removed from both strategist fallback and the worker pool;
-`Unknown` remains usable. Auto mode previews and runs the generated plan, while
+missing or unreadable capacity is shown as `Unknown` and remains usable. Auto
+mode previews and runs the generated plan, while
 Manual mode stops after planning and exposes a Run action. Session history,
 image upload, Resume, recent events, and changed files remain local.
 
