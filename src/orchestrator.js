@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { agentInvocation } from "./adapters.js";
 import { materializeAttachments } from "./attachments.js";
+import { eligibleAgents } from "./capacity.js";
 import { buildTaskPrompt, collectContext } from "./context.js";
 import { assertCleanRepo, changedFiles, createTaskWorktree, currentHead } from "./git.js";
 import { buildWaves, validatePlan } from "./plan.js";
@@ -188,8 +189,14 @@ export async function runPlan({
       // Progress rendering must never interrupt orchestration.
     }
   };
-  const configuredAgents = Object.keys(config.agents || {});
+  const configuredAgents = eligibleAgents(Object.keys(config.agents || {}), config);
   const plan = validatePlan(planInput, configuredAgents);
+  const allowedAgents = new Set(configuredAgents);
+  for (const task of plan.tasks) {
+    if (!allowedAgents.has(task.agent)) {
+      throw new Error(`task ${task.id} uses an unavailable or exhausted agent: ${task.agent}`);
+    }
+  }
   const concurrency = maxParallel || config.maxParallel;
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error("maxParallel must be a positive integer");

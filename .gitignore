@@ -1,4 +1,7 @@
 node_modules/
+web/node_modules/
+web/.vite/
+web/.npm-cache/
 .DS_Store
 .strategos/runs/
 .strategos/memory.local.md
