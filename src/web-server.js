@@ -159,9 +159,10 @@ export function createWebApplication(options) {
         config,
         planInput,
         onEvent: (event) => {
-          publish(context, session.id, event);
+          const stampedEvent = { ...event, at: event.at || new Date().toISOString() };
+          publish(context, session.id, stampedEvent);
           checkpoint = checkpoint.then(async () => {
-            session = await context.sessionStore.appendEvent(session, event);
+            session = await context.sessionStore.appendEvent(session, stampedEvent);
           });
           return checkpoint;
         },
@@ -218,7 +219,14 @@ export function createWebApplication(options) {
           executionMode,
           attachments: serializableAttachments(attachments),
         });
-    publish(context, session.id, { type: "planning_started", strategist, workerAgents });
+    const planningEvent = {
+      type: "planning_started",
+      strategist,
+      workerAgents,
+      at: new Date().toISOString(),
+    };
+    session = await context.sessionStore.appendEvent(session, planningEvent);
+    publish(context, session.id, planningEvent);
     try {
       const plan = await planWithStrategistFn({
         root: context.root,

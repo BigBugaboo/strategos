@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import { availableAgentNames, historyDate, quotaLabel, sessionTaskState } from "./model.js";
+import {
+  availableAgentNames,
+  historyDate,
+  mergeSessionEvents,
+  quotaLabel,
+  sessionActivityState,
+  sessionTaskState,
+} from "./model.js";
 
 describe("capacity presentation", () => {
   it("labels exhausted and unknown capacity without inventing a percentage", () => {
@@ -53,5 +60,32 @@ describe("real session presentation", () => {
       expect.objectContaining({ id: "review", agent: "codex", status: "preparing" }),
     ]);
     expect(result.changedFiles).toEqual(["src/index.js"]);
+  });
+
+  it("shows the headless strategist as active while planning", () => {
+    expect(sessionActivityState({ status: "planning", strategist: "codex" }, [], true)).toEqual(
+      expect.objectContaining({
+        detached: false,
+        activities: [
+          expect.objectContaining({
+            agent: "codex",
+            kind: "strategist",
+            label: "Planning task graph",
+          }),
+        ],
+      }),
+    );
+    expect(sessionActivityState({ status: "planning", strategist: "codex" }, [], false)).toEqual(
+      expect.objectContaining({ detached: true, activities: [] }),
+    );
+  });
+
+  it("deduplicates persisted and live copies of the same event", () => {
+    const event = {
+      type: "planning_started",
+      at: "2026-07-21T10:41:53.000Z",
+      strategist: "codex",
+    };
+    expect(mergeSessionEvents([event], [{ ...event }])).toEqual([event]);
   });
 });

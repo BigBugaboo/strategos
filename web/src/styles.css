@@ -1012,6 +1012,16 @@ kbd {
   height: 9px;
   border-radius: 50%;
 }
+.activity-pulse {
+  box-shadow: 0 0 0 0 rgba(70, 206, 120, 0.45);
+  animation: activity-pulse 1.8s ease-out infinite;
+}
+.headless-note {
+  margin: 10px 0 0;
+  color: #778493;
+  font-size: 9.5px;
+  line-height: 1.45;
+}
 .active-task strong {
   color: #c4cbd4;
   text-transform: capitalize;
@@ -1123,6 +1133,15 @@ kbd {
   margin: 14px 0 0;
   color: #697687;
   font-size: 10px;
+}
+
+@keyframes activity-pulse {
+  70% {
+    box-shadow: 0 0 0 5px rgba(70, 206, 120, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(70, 206, 120, 0);
+  }
 }
 
 .center-page {
