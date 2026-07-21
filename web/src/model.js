@@ -50,7 +50,10 @@ export function sessionTaskState(session, liveEvents = []) {
 
 export function sessionActivityState(session, liveEvents = [], isActive = false) {
   const taskState = sessionTaskState(session, liveEvents);
-  const activities = taskState.activeTasks.map((task) => ({
+  const detached = Boolean(
+    ["planning", "previewed", "running"].includes(session?.status) && !isActive,
+  );
+  const activities = (detached ? [] : taskState.activeTasks).map((task) => ({
     id: task.id,
     agent: task.agent,
     label: task.id,
@@ -69,7 +72,7 @@ export function sessionActivityState(session, liveEvents = [], isActive = false)
   return {
     ...taskState,
     activities,
-    detached: Boolean(session?.status === "planning" && !isActive),
+    detached,
   };
 }
 

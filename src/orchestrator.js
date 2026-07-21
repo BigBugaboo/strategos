@@ -129,11 +129,12 @@ async function prepareTask({
   }
 }
 
-async function executePreparedTask(prepared, config) {
+async function executePreparedTask(prepared, config, signal) {
   if (prepared.status === "failed") return prepared;
   const timeoutMs = config.taskTimeoutMinutes * 60_000;
   const result = await runCommand(prepared.invocation.command, prepared.invocation.args, {
     cwd: prepared.worktree,
+    signal,
     timeoutMs,
     env: {
       ...process.env,
@@ -151,13 +152,14 @@ async function executePreparedTask(prepared, config) {
   const files = await changedFiles(prepared.worktree).catch(() => []);
   let error = null;
   if (commandExistsError(result)) error = `${prepared.invocation.command} not found on PATH`;
+  else if (result.aborted) error = "task interrupted by user";
   else if (result.timedOut) error = `task exceeded ${config.taskTimeoutMinutes} minutes`;
   else if (result.code !== 0) error = result.stderr.trim() || `agent exited with code ${result.code}`;
   else if (!report) error = "agent exited without returning a report";
 
   return {
     ...prepared,
-    status: error ? "failed" : "succeeded",
+    status: result.aborted ? "interrupted" : error ? "failed" : "succeeded",
     exitCode: result.code,
     report,
     error,
@@ -181,6 +183,7 @@ export async function runPlan({
   maxParallel,
   onEvent = () => {},
   sessionIdFactory = () => crypto.randomUUID(),
+  signal,
 }) {
   const emit = async (event) => {
     try {
@@ -240,6 +243,7 @@ export async function runPlan({
   await emit({ type: "run_started", runId, goal: plan.goal });
 
   while (pending.size > 0) {
+    if (signal?.aborted) break;
     for (const task of [...pending.values()]) {
       const blockedBy = task.dependsOn.find((id) => {
         const dependency = results.get(id);
@@ -290,7 +294,9 @@ export async function runPlan({
     for (const task of prepared) {
       if (task.status !== "failed") await emit({ type: "task_started", task });
     }
-    const batch = await Promise.all(prepared.map((task) => executePreparedTask(task, config)));
+    const batch = await Promise.all(
+      prepared.map((task) => executePreparedTask(task, config, signal)),
+    );
     for (const result of batch) {
       results.set(result.id, result);
       await emit({ type: "task_finished", task: result });
@@ -303,9 +309,25 @@ export async function runPlan({
     await saveManifest(manifestFile, manifest, results, root);
   }
 
-  manifest.status = [...results.values()].every((result) => result.status === "succeeded")
-    ? "succeeded"
-    : "failed";
+  if (signal?.aborted) {
+    for (const task of pending.values()) {
+      results.set(task.id, {
+        id: task.id,
+        agent: task.agent,
+        mode: task.mode,
+        status: "skipped",
+        report: "",
+        error: "run interrupted before task started",
+        finishedAt: new Date().toISOString(),
+      });
+    }
+    pending.clear();
+  }
+  manifest.status = signal?.aborted
+    ? "interrupted"
+    : [...results.values()].every((result) => result.status === "succeeded")
+      ? "succeeded"
+      : "failed";
   manifest.finishedAt = new Date().toISOString();
   await saveManifest(manifestFile, manifest, results, root);
   await emit({ type: "run_finished", runId, manifest });

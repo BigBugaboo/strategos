@@ -36,6 +36,8 @@ Strategos provides a small neutral layer:
   run immediately; `/mode manual` restores an explicit execution gate.
 - **Durable recovery context**: goals, plans, progress, and failures are
   checkpointed locally so `/resume` can give a strategist the prior context.
+- **Interrupt and resume**: the Web inspector can stop active strategist and
+  worker CLI process groups without discarding the durable Session context.
 - **Image context**: `/attach <path>` sends PNG, JPEG, GIF, or WebP evidence to
   the strategist and copies it into every isolated worker worktree.
 - **Single-CLI multi-session mode**: one healthy agent CLI is enough. Strategos

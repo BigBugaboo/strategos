@@ -80,6 +80,16 @@ describe("real session presentation", () => {
     );
   });
 
+  it("marks orphaned worker execution as detached after a server restart", () => {
+    const session = {
+      status: "running",
+      events: [{ type: "task_started", task: { id: "worker", agent: "claude" } }],
+    };
+    expect(sessionActivityState(session, [], false)).toEqual(
+      expect.objectContaining({ detached: true, activities: [] }),
+    );
+  });
+
   it("deduplicates persisted and live copies of the same event", () => {
     const event = {
       type: "planning_started",

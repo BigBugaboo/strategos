@@ -113,7 +113,10 @@ capacity:
 3. Auto mode displays the plan and starts eligible workers. Manual mode waits
    for the Run action.
 4. The right inspector streams task events and shows the saved run manifest.
-5. Select a history item to inspect it. Failed or interrupted sessions expose
+5. While planning or workers are active, use **Stop session** in the inspector
+   to terminate the session's local CLI process group. The session is saved as
+   interrupted; generated worktrees and evidence remain on disk.
+6. Select a history item to inspect it. Failed or interrupted sessions expose
    Resume, which sends the durable context back to the strategist.
 
 Worker branches are never merged or pushed automatically.
@@ -129,5 +132,7 @@ Worker branches are never merged or pushed automatically.
 - Attached images appear above the prompt and can be removed before submission.
 - The right details panel appears only for a selected Session. It can be closed
   and reopened without changing the selected Session.
+- Stop session uses an inline confirmation. After termination completes, the
+  same Session exposes Resume with its saved goal, plan, events, and run state.
 - Project and mode menus close with `Escape`; transient menus also close when
   focus moves to another part of the interface.

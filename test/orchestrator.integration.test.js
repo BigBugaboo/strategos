@@ -127,3 +127,56 @@ test("does not treat a silent zero-exit agent as successful", async () => {
   assert.equal(result.manifest.status, "failed");
   assert.match(result.manifest.tasks.silent.error, /without returning a report/);
 });
+
+test("interrupts active workers and skips pending dependent tasks", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "strategos-interrupt-"));
+  const root = path.join(parent, "repo");
+  await fs.mkdir(root);
+  git(root, "init", "-b", "main");
+  git(root, "config", "user.name", "Strategos Test");
+  git(root, "config", "user.email", "strategos@example.invalid");
+  await fs.writeFile(path.join(root, "AGENTS.md"), "Test project\n", "utf8");
+  await fs.writeFile(path.join(root, ".gitignore"), ".strategos/runs/\n", "utf8");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "initial");
+  const config = {
+    ...DEFAULT_CONFIG,
+    worktreeRoot: path.join(parent, "worktrees"),
+    maxParallel: 1,
+    taskTimeoutMinutes: 1,
+    agents: {
+      worker: {
+        command: process.execPath,
+        args: ["-e", "setTimeout(() => console.log('late report'), 30000)"],
+      },
+    },
+  };
+  const controller = new AbortController();
+  const result = await runPlan({
+    root,
+    config,
+    signal: controller.signal,
+    planInput: {
+      version: 1,
+      goal: "interrupt workers",
+      tasks: [
+        { id: "implementation", agent: "worker", prompt: "work", dependsOn: [] },
+        {
+          id: "review",
+          agent: "worker",
+          mode: "read-only",
+          prompt: "review",
+          dependsOn: ["implementation"],
+        },
+      ],
+    },
+    onEvent: (event) => {
+      if (event.type === "task_started") controller.abort();
+    },
+  });
+
+  assert.equal(result.manifest.status, "interrupted");
+  assert.equal(result.manifest.tasks.implementation.status, "interrupted");
+  assert.equal(result.manifest.tasks.review.status, "skipped");
+  assert.match(result.manifest.tasks.implementation.error, /interrupted by user/);
+});

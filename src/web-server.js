@@ -105,6 +105,16 @@ function safeAttachmentName(name, extension) {
   return `${stem || "attachment"}${extension}`;
 }
 
+function interruptionError() {
+  const error = new Error("session stopped by user");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfStopped(signal) {
+  if (signal?.aborted) throw interruptionError();
+}
+
 export function createWebApplication(options) {
   const initialRoot = path.resolve(options.root);
   const version = options.version || "development";
@@ -145,7 +155,7 @@ export function createWebApplication(options) {
     return updated;
   };
 
-  const runSession = async (context, initialSession, config, planInput) => {
+  const runSession = async (context, initialSession, config, planInput, signal) => {
     let session = await updateSession(context, initialSession, {
       status: "running",
       plan: planInput,
@@ -154,10 +164,12 @@ export function createWebApplication(options) {
     }, { type: "session_updated", session: { status: "running", plan: planInput } });
     let checkpoint = Promise.resolve();
     try {
+      throwIfStopped(signal);
       const result = await runPlanFn({
         root: context.root,
         config,
         planInput,
+        signal,
         onEvent: (event) => {
           const stampedEvent = { ...event, at: event.at || new Date().toISOString() };
           publish(context, session.id, stampedEvent);
@@ -168,26 +180,30 @@ export function createWebApplication(options) {
         },
       });
       await checkpoint;
+      const status = result.manifest.status;
       session = await updateSession(context, session, {
-        status: result.manifest.status === "succeeded" ? "succeeded" : "failed",
+        status,
         runId: result.runId,
         manifest: result.manifest,
-        error: result.manifest.status === "succeeded" ? null : "one or more worker tasks failed",
+        error: status === "failed" ? "one or more worker tasks failed" : null,
         finishedAt: new Date().toISOString(),
-      }, { type: "session_complete", status: result.manifest.status, runId: result.runId });
+      }, status === "interrupted"
+        ? { type: "session_interrupted", phase: "running", runId: result.runId }
+        : { type: "session_complete", status, runId: result.runId });
     } catch (error) {
       await checkpoint.catch(() => {});
+      const interrupted = signal?.aborted;
       session = await updateSession(context, session, {
-        status: "failed",
-        error: String(error.message || error).slice(0, 4_000),
+        status: interrupted ? "interrupted" : "failed",
+        error: interrupted ? null : String(error.message || error).slice(0, 4_000),
         finishedAt: new Date().toISOString(),
-      }, { type: "session_error", error: String(error.message || error) });
-    } finally {
-      active.delete(contextKey(context, session.id));
+      }, interrupted
+        ? { type: "session_interrupted", phase: "running" }
+        : { type: "session_error", error: String(error.message || error) });
     }
   };
 
-  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", resumeSession, existingSession }) => {
+  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", resumeSession, existingSession, signal }) => {
     let config = await loadConfigFn(context.root);
     const checks = await runDoctorFn(config, context.root);
     const healthy = healthyAgentNames(checks, config);
@@ -235,8 +251,10 @@ export function createWebApplication(options) {
         strategist,
         workerAgents,
         attachments,
+        signal,
         resumeContext: resumeSession ? buildResumeContext(resumeSession) : undefined,
       });
+      throwIfStopped(signal);
       const planWithAttachments = {
         ...plan,
         attachments: attachments.map((attachment) => attachment.relativePath),
@@ -246,21 +264,39 @@ export function createWebApplication(options) {
         plan: planWithAttachments,
         attachments: serializableAttachments(attachments),
       }, { type: "plan_ready", plan: planWithAttachments, executionMode });
-      if (executionMode === "auto") await runSession(context, session, config, planWithAttachments);
+      if (executionMode === "auto") {
+        await runSession(context, session, config, planWithAttachments, signal);
+      }
     } catch (error) {
+      const interrupted = signal?.aborted;
       session = await updateSession(context, session, {
-        status: "failed",
-        error: String(error.message || error).slice(0, 4_000),
+        status: interrupted ? "interrupted" : "failed",
+        error: interrupted ? null : String(error.message || error).slice(0, 4_000),
         finishedAt: new Date().toISOString(),
-      }, { type: "session_error", error: String(error.message || error) });
-      active.delete(contextKey(context, session.id));
+      }, interrupted
+        ? { type: "session_interrupted", phase: "planning" }
+        : { type: "session_error", error: String(error.message || error) });
     }
   };
 
-  const startBackground = (context, session, promise) => {
+  const startBackground = (context, session, operation) => {
     const key = contextKey(context, session.id);
-    active.set(key, promise);
-    promise.catch(() => active.delete(key));
+    const controller = new AbortController();
+    const record = { controller, promise: null };
+    active.set(key, record);
+    record.promise = Promise.resolve().then(() => operation(controller.signal));
+    const finish = () => {
+      if (active.get(key) !== record) return;
+      active.delete(key);
+      publish(context, session.id, {
+        type: "session_inactive",
+        at: new Date().toISOString(),
+      });
+    };
+    record.promise.then(
+      finish,
+      finish,
+    );
   };
 
   const serveStatic = async (request, response, pathname) => {
@@ -415,14 +451,30 @@ export function createWebApplication(options) {
           executionMode,
           attachments: [],
         });
-        const background = planSession(context, {
+        startBackground(context, session, (signal) => planSession(context, {
           goal,
           attachmentPaths: input.attachmentPaths || [],
           executionMode,
           existingSession: session,
-        });
-        startBackground(context, session, background);
+          signal,
+        }));
         sendJson(response, 202, publicSession(session));
+        return;
+      }
+      const stopMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/stop$/);
+      if (request.method === "POST" && stopMatch) {
+        const session = await sessionStore.load(stopMatch[1]);
+        if (!session) return sendJson(response, 404, { error: "session not found" });
+        const record = active.get(contextKey(context, session.id));
+        if (!record) {
+          throw Object.assign(new Error("session is not active"), { status: 409 });
+        }
+        record.controller.abort();
+        publish(context, session.id, {
+          type: "session_stopping",
+          at: new Date().toISOString(),
+        });
+        sendJson(response, 202, { id: session.id, status: "stopping" });
         return;
       }
       const runMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/run$/);
@@ -434,8 +486,9 @@ export function createWebApplication(options) {
           throw Object.assign(new Error("session is already active"), { status: 409 });
         }
         const config = await loadConfigFn(root);
-        const background = runSession(context, session, config, session.plan);
-        startBackground(context, session, background);
+        startBackground(context, session, (signal) => (
+          runSession(context, session, config, session.plan, signal)
+        ));
         sendJson(response, 202, publicSession(session));
         return;
       }
@@ -447,13 +500,13 @@ export function createWebApplication(options) {
           throw Object.assign(new Error("session is already active"), { status: 409 });
         }
         const input = await readJsonBody(request);
-        const background = planSession(context, {
+        startBackground(context, session, (signal) => planSession(context, {
           goal: String(input.goal || session.goal),
           attachmentPaths: input.attachmentPaths || session.attachments || [],
           executionMode: input.executionMode || session.executionMode || "auto",
           resumeSession: session,
-        });
-        startBackground(context, session, background);
+          signal,
+        }));
         sendJson(response, 202, publicSession(session));
         return;
       }
