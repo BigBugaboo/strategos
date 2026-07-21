@@ -155,6 +155,7 @@ sessions also remain inspectable but are never offered for recovery.
 | `/status [id]` | Show a specific run, or the latest run when no ID is provided. |
 | `/sessions` | List the ten most recent durable sessions, including completed and abandoned sessions. |
 | `/resume [id]` | Choose a resumable session interactively, or re-plan a specific session ID directly. |
+| `/web [port]` | Start the local Web UI for this repository. The default port is `4310`; the server stops when the console exits. |
 | `/agents` | Re-run environment and agent CLI health checks. |
 | `/context` | List the shared context files currently present. |
 | `/init` | Initialize Strategos without overwriting existing files. |

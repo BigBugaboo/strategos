@@ -154,6 +154,45 @@ test("ordinary console input proposes a plan and previews its waves", async () =
   assert.match(output, /Max parallel: 3/);
 });
 
+test("console starts one local Web UI server and closes it on exit", async () => {
+  const captured = captureOutput();
+  let starts = 0;
+  let closeAllConnectionsCalls = 0;
+  let closeCalls = 0;
+
+  await startConsole(
+    consoleOptions("/web\n/web\n/exit\n", captured.output, {
+      startWebServerFn: async (options) => {
+        starts += 1;
+        assert.deepEqual(options, {
+          root: "/tmp/example-repository",
+          host: "127.0.0.1",
+          port: 4310,
+          version: "0.9.0-test",
+        });
+        return {
+          url: "http://127.0.0.1:4310",
+          server: {
+            closeAllConnections() {
+              closeAllConnectionsCalls += 1;
+            },
+            close(callback) {
+              closeCalls += 1;
+              callback();
+            },
+          },
+        };
+      },
+    }),
+  );
+
+  assert.equal(starts, 1);
+  assert.equal(closeAllConnectionsCalls, 1);
+  assert.equal(closeCalls, 1);
+  assert.match(captured.read(), /Web UI running  http:\/\/127\.0\.0\.1:4310/);
+  assert.match(captured.read(), /Already running at http:\/\/127\.0\.0\.1:4310/);
+});
+
 test("attaches image context to planning, plans, and durable sessions", async () => {
   const captured = captureOutput();
   const sessionStore = memorySessionStore();

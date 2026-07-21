@@ -22,7 +22,7 @@ import {
   renderWelcome,
   selectResumeSession,
 } from "./terminal.js";
-import { ensureDir, writeJson } from "./utils.js";
+import { ensureDir, parsePositiveInteger, writeJson } from "./utils.js";
 
 const DEFAULT_CONTEXT_PATHS = Object.freeze([
   "AGENTS.md",
@@ -130,6 +130,7 @@ function consoleHelp(ui = createTerminalUi()) {
   /status [id]    Show a run manifest
   /sessions       List recent durable sessions
   /resume [id]    Re-plan and continue the latest or selected session
+  /web [port]     Start the local Web UI for this repository
   /agents         Recheck Git, Node.js, and agent CLIs
   /context        Show shared context files
   /init           Initialize Strategos without overwriting existing files
@@ -213,6 +214,7 @@ export async function startConsole(options) {
   const attachImageFn = options.attachImageFn || attachImage;
   const captureClipboardImageFn = options.captureClipboardImageFn || captureClipboardImage;
   const resolveAttachmentsFn = options.resolveAttachmentsFn || resolveAttachments;
+  const startWebServerFn = options.startWebServerFn;
   const sessionStore = options.sessionStore || createSessionStore(root);
   const selectResumeSessionFn = options.selectResumeSessionFn || selectResumeSession;
   const interactive = Boolean(input.isTTY && output.isTTY);
@@ -230,6 +232,8 @@ export async function startConsole(options) {
   let planningInterruptArmed = false;
   let planningInterruptTimer;
   let executionActive = false;
+  let webServer;
+  let webUrl;
   let shouldExit = false;
   let currentExecutionMode = normalizeExecutionMode(config.executionMode);
   const configuredAgents = () => Object.keys(config.agents || {});
@@ -685,6 +689,25 @@ export async function startConsole(options) {
       await propose(session.goal, session);
       return;
     }
+    if (name === "web") {
+      if (webServer) {
+        writeLine(output, `${ui.info("Web UI")}  Already running at ${ui.accent(webUrl)}`);
+        return;
+      }
+      if (!startWebServerFn) throw new Error("Web UI startup is unavailable in this console");
+      const port = argument ? parsePositiveInteger(argument, "/web port") : 4310;
+      const result = await startWebServerFn({
+        root,
+        host: "127.0.0.1",
+        port,
+        version,
+      });
+      webServer = result.server;
+      webUrl = result.url;
+      writeLine(output, `${ui.success("Web UI running")}  ${ui.accent(webUrl)}`);
+      writeLine(output, ui.muted("Keep this Strategos console open while using the browser."));
+      return;
+    }
     if (name === "agents" || name === "doctor") {
       config = await loadConfigFn(root);
       checks = await runDoctorFn(config, root);
@@ -706,15 +729,24 @@ export async function startConsole(options) {
     throw new Error(`unknown console command: /${name}`);
   };
 
-  for await (const rawLine of rl) {
-    const line = rawLine.trim();
-    try {
-      if (line.startsWith("/")) await handleCommand(line);
-      else if (line) await propose(line);
-    } catch (error) {
-      writeLine(output, `${ui.error("Error")}  ${error.message}`);
+  try {
+    for await (const rawLine of rl) {
+      const line = rawLine.trim();
+      try {
+        if (line.startsWith("/")) await handleCommand(line);
+        else if (line) await propose(line);
+      } catch (error) {
+        writeLine(output, `${ui.error("Error")}  ${error.message}`);
+      }
+      if (shouldExit) break;
+      promptUser();
     }
-    if (shouldExit) break;
-    promptUser();
+  } finally {
+    if (webServer) {
+      webServer.closeAllConnections?.();
+      await new Promise((resolve, reject) => {
+        webServer.close((error) => error ? reject(error) : resolve());
+      });
+    }
   }
 }
