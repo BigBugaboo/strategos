@@ -13,7 +13,7 @@ const checks = [
 test("renders a compact colored welcome surface for interactive terminals", () => {
   const ui = createTerminalUi({ interactive: true, columns: 96, env: { TERM: "xterm-256color" } });
   const output = renderWelcome(ui, {
-    version: "0.6.1",
+    version: "0.7.0",
     root: "/tmp/example-repository",
     strategist: "codex",
     checks,
@@ -22,19 +22,20 @@ test("renders a compact colored welcome surface for interactive terminals", () =
 
   assert.equal(ui.color, true);
   assert.match(output, /\u001b\[/);
-  assert.match(plain, /STRATEGOS v0\.6\.1/);
+  assert.match(plain, /STRATEGOS v0\.7\.0/);
   assert.match(plain, /Multi-agent strategy console · codex plans/);
   assert.match(plain, /Agents\s+● claude\s+·\s+● codex\s+·\s+● copilot/);
   assert.match(plain, /Runtime Node v24\.18\.0 · Git 2\.55\.0/);
+  assert.match(plain, /previews the plan, then runs it automatically/);
   assert.doesNotMatch(plain, /Claude Code/);
 });
 
 test("renders input guidance and respects terminal width", () => {
   const ui = createTerminalUi({ interactive: true, columns: 72, env: { TERM: "xterm" } });
-  const output = stripAnsi(renderInputChrome(ui, "codex"));
+  const output = stripAnsi(renderInputChrome(ui, "auto"));
   const [rule, hints] = output.split("\n");
   assert.equal(rule.length, 72);
-  assert.match(hints, /\/help commands\s+·\s+\/strategist codex planner\s+·\s+\/run after review/);
+  assert.match(hints, /\/help commands\s+·\s+\/mode auto\s+·\s+preview → run/);
 });
 
 test("disables styling when NO_COLOR is present", () => {
@@ -44,14 +45,14 @@ test("disables styling when NO_COLOR is present", () => {
     env: { TERM: "xterm", NO_COLOR: "" },
   });
   assert.equal(ui.color, false);
-  assert.doesNotMatch(renderInputChrome(ui, "claude"), /\u001b\[/);
+  assert.doesNotMatch(renderInputChrome(ui, "manual"), /\u001b\[/);
 });
 
 test("expands unavailable tools into actionable startup warnings", () => {
   const ui = createTerminalUi({ interactive: true, columns: 80, env: { TERM: "xterm" } });
   const output = stripAnsi(
     renderWelcome(ui, {
-      version: "0.6.1",
+      version: "0.7.0",
       root: "/tmp/example-repository",
       strategist: "codex",
       checks: checks.map((check) =>

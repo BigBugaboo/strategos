@@ -15,9 +15,9 @@ At startup, Strategos displays the repository, Node.js version, and health of
 Claude Code, Codex CLI, and Copilot CLI. Enter ordinary text to describe a
 development goal.
 
-## Planning and approval
+## Planning and execution
 
-The `0.6.x` console delegates planning to one installed agent CLI instead of
+The `0.7.x` console delegates planning to one installed agent CLI instead of
 embedding a model provider:
 
 1. The configured strategist, `codex` by default, is invoked immediately in
@@ -25,12 +25,13 @@ embedding a model provider:
 2. The strategist inspects the repository and receives shared project context,
    the available worker names, safety constraints, and the plan JSON schema.
 3. It returns a task graph for the healthy worker pool. The default `hybrid`
-   pool includes the strategist, so it may plan first and receive a worker task
-   only after approval.
+   pool includes the strategist, so it may plan first and receive a worker task.
 4. Strategos extracts the JSON, validates task IDs, agents, modes,
    dependencies, task count, and cycles, then displays the proposed waves.
-5. The user reviews the result with `/plan` or `/preview` and explicitly enters
-   `/run` to start worker tasks.
+5. In the default `auto` execution mode, Strategos displays the validated plan,
+   renders the dry-run preview, and immediately starts worker tasks.
+6. In `manual` mode, Strategos stops after displaying the plan and waits for
+   `/preview`, `/save`, or `/run`.
 
 Strategos contains no model SDK, model API integration, or provider key. A goal
 does consume one planning call through the selected CLI, but planning creates
@@ -45,6 +46,7 @@ The default can be changed in `.strategos/config.json`:
 {
   "strategist": "codex",
   "workerMode": "hybrid",
+  "executionMode": "auto",
   "planningTimeoutMinutes": 5,
   "maxPlanningTasks": 12
 }
@@ -60,17 +62,29 @@ The default can be changed in `.strategos/config.json`:
 Changing `/strategist` affects which CLI plans; `workerMode` continues to
 control whether that selected CLI is also eligible for execution.
 
+`executionMode` controls what happens after a valid plan is generated:
+
+| Mode | Behavior |
+| --- | --- |
+| `auto` | Default. Display the plan, run the dry-run preview, and immediately execute it. Entering the goal authorizes both planning and worker execution. |
+| `manual` | Display the plan and wait. The user may inspect or save it and must use `/run` to execute it. |
+
+Use `/mode auto` or `/mode manual` to change the current console session. The
+setting applies to newly entered goals and does not automatically execute an
+already loaded or previously generated plan.
+
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
 | `/new [goal]` | Ask the strategist to produce another plan. If the goal is omitted, enter it on the next line. |
+| `/mode [auto\|manual]` | Show or change execution behavior for newly entered goals in this session. |
 | `/strategist [agent]` | Show or change the planning CLI for the current session. |
 | `/plan` | Show the current task graph and dependency waves. |
 | `/load <file>` | Load and validate a JSON plan inside the repository. |
 | `/save [file]` | Save the current plan. The default is a timestamped file under `.strategos/plans/`. |
 | `/preview` | Validate the current plan and show waves without changing the repository. |
-| `/run` | Execute the current plan after the user has reviewed it. |
+| `/run` | Execute the current plan explicitly. Primarily used in manual mode or after `/load`. |
 | `/status [id]` | Show a specific run, or the latest run when no ID is provided. |
 | `/agents` | Re-run environment and agent CLI health checks. |
 | `/context` | List the shared context files currently present. |
@@ -90,8 +104,8 @@ coding-agent consoles:
    unavailable tools expand into warnings.
 3. A dedicated input boundary separates conversation output from the next
    goal or slash command.
-4. A muted footer keeps `/help`, strategist selection, and the `/run` approval
-   boundary visible without repeating the full command list.
+4. A muted footer keeps `/help`, the active execution mode, and its
+   preview-to-run behavior visible without repeating the full command list.
 
 The presentation uses Strategos colors and wording rather than another tool's
 brand assets. Terminal width is clamped to keep separators readable on narrow
@@ -101,10 +115,10 @@ Use `/agents` when full command versions or failure details are needed.
 
 ## Live execution
 
-During `/run`, the console reports when the run starts, each worktree is being
-prepared, each agent starts, tasks succeed or fail, dependencies are skipped,
-and the final manifest is complete. It then prints task branches and errors for
-review.
+During automatic or explicit execution, the console reports when the run
+starts, each worktree is being prepared, each agent starts, tasks succeed or
+fail, dependencies are skipped, and the final manifest is complete. It then
+prints task branches and errors for review.
 
 ## Repository cleanliness
 
@@ -117,12 +131,16 @@ git commit -m "configure Strategos orchestration"
 ```
 
 This ensures every task worktree starts from a reproducible committed `HEAD`.
+In auto mode, a dirty repository stops execution after the preview; no worker
+starts until the repository is clean and the goal is entered again.
 
 ## Current boundaries
 
 - Each goal starts a fresh non-interactive strategist call; native CLI chat
   history is not imported or shared.
-- Worker tasks started by `/run` cannot yet be cancelled from the console.
+- Worker tasks cannot yet be cancelled from the console after execution starts.
+  Pressing `Ctrl+C` during execution reports this limitation and keeps the
+  console attached until the run finishes.
 - The console renders a scrolling event stream rather than a full-screen TUI.
 - Branch integration remains human-controlled; Strategos does not merge or
   push agent branches automatically.

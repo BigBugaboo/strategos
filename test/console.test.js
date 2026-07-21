@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough, Readable } from "node:stream";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { selectWorkerAgents, startConsole } from "../src/console.js";
+import { normalizeExecutionMode, selectWorkerAgents, startConsole } from "../src/console.js";
 import { stripAnsi } from "../src/terminal.js";
 
 const healthyChecks = [
@@ -25,10 +25,10 @@ function captureOutput() {
 function consoleOptions(input, output, overrides = {}) {
   return {
     root: "/tmp/example-repository",
-    version: "0.6.1-test",
+    version: "0.7.0-test",
     input: typeof input === "string" ? Readable.from([input]) : input,
     output,
-    loadConfigFn: async () => DEFAULT_CONFIG,
+    loadConfigFn: async () => ({ ...DEFAULT_CONFIG, executionMode: "manual" }),
     runDoctorFn: async () => healthyChecks,
     initializeProjectFn: async () => [],
     planWithStrategistFn: async ({ goal }) => ({
@@ -145,6 +145,101 @@ test("worker mode rejects unsupported values", () => {
   );
 });
 
+test("execution mode defaults to auto and rejects unsupported values", () => {
+  assert.equal(normalizeExecutionMode(), "auto");
+  assert.equal(normalizeExecutionMode("manual"), "manual");
+  assert.throws(
+    () => normalizeExecutionMode("automatic"),
+    /invalid executionMode: automatic/,
+  );
+});
+
+test("auto mode previews and then executes a generated plan", async () => {
+  const captured = captureOutput();
+  const calls = [];
+  const manifest = { id: "run-auto", status: "succeeded", tasks: {} };
+
+  await startConsole(
+    consoleOptions("Ship the feature\n/exit\n", captured.output, {
+      loadConfigFn: async () => DEFAULT_CONFIG,
+      runPlanFn: async ({ dryRun, onEvent }) => {
+        calls.push(dryRun === true ? "preview" : "run");
+        if (dryRun) {
+          return { dryRun: true, maxParallel: 3, waves: [["implementation"]] };
+        }
+        onEvent({ type: "run_started", runId: "run-auto", goal: "Ship the feature" });
+        onEvent({ type: "run_finished", runId: "run-auto", manifest });
+        return { dryRun: false, runId: "run-auto", manifest };
+      },
+    }),
+  );
+
+  const output = captured.read();
+  assert.deepEqual(calls, ["preview", "run"]);
+  assert.match(output, /Auto mode  Previewing before execution/);
+  assert.ok(output.indexOf("Preview  Max parallel") < output.indexOf("Executing  Starting"));
+  assert.match(output, /Run finished: succeeded/);
+});
+
+test("auto mode never executes when preview fails", async () => {
+  const captured = captureOutput();
+  const calls = [];
+
+  await startConsole(
+    consoleOptions("Ship the feature\n/exit\n", captured.output, {
+      loadConfigFn: async () => DEFAULT_CONFIG,
+      runPlanFn: async ({ dryRun }) => {
+        calls.push(dryRun === true ? "preview" : "run");
+        if (dryRun) throw new Error("preview failed");
+        throw new Error("execution should not start");
+      },
+    }),
+  );
+
+  assert.deepEqual(calls, ["preview"]);
+  assert.match(captured.read(), /Error  preview failed/);
+});
+
+test("mode command changes execution behavior for the current session", async () => {
+  const captured = captureOutput();
+  const calls = [];
+  const manifest = { id: "run-mode", status: "succeeded", tasks: {} };
+
+  await startConsole(
+    consoleOptions("/mode auto\nShip the feature\n/exit\n", captured.output, {
+      runPlanFn: async ({ dryRun }) => {
+        calls.push(dryRun === true ? "preview" : "run");
+        return dryRun
+          ? { dryRun: true, maxParallel: 3, waves: [["implementation"]] }
+          : { dryRun: false, runId: "run-mode", manifest };
+      },
+    }),
+  );
+
+  assert.deepEqual(calls, ["preview", "run"]);
+  assert.match(captured.read(), /Execution mode changed  auto/);
+});
+
+test("mode command can pause the default auto flow", async () => {
+  const captured = captureOutput();
+  let runCalls = 0;
+
+  await startConsole(
+    consoleOptions("/mode manual\nShip the feature\n/exit\n", captured.output, {
+      loadConfigFn: async () => DEFAULT_CONFIG,
+      runPlanFn: async () => {
+        runCalls += 1;
+        throw new Error("manual mode should not run automatically");
+      },
+    }),
+  );
+
+  const output = captured.read();
+  assert.equal(runCalls, 0);
+  assert.match(output, /Execution mode changed  manual/);
+  assert.match(output, /Next  \/preview  \/run  \/save/);
+});
+
 test("run command renders live orchestration events", async () => {
   const captured = captureOutput();
   const manifest = {
@@ -196,9 +291,9 @@ test("interactive console renders compact startup chrome", async () => {
   const output = captured.read();
   const plain = stripAnsi(output);
   assert.match(output, /\u001b\[/);
-  assert.match(plain, /STRATEGOS v0\.6\.1-test/);
+  assert.match(plain, /STRATEGOS v0\.7\.0-test/);
   assert.match(plain, /Agents\s+● claude\s+·\s+● codex\s+·\s+● copilot/);
-  assert.match(plain, /\/help commands\s+·\s+\/strategist codex planner/);
+  assert.match(plain, /\/help commands\s+·\s+\/mode manual\s+·\s+\/run after review/);
   assert.doesNotMatch(plain, /Claude Code test/);
 });
 
@@ -277,5 +372,47 @@ test("Ctrl+C cancels active planning without closing the console", async () => {
   const output = stripAnsi(captured.read());
   assert.match(output, /Cancelling strategist/);
   assert.match(output, /planning cancelled/);
+  assert.doesNotMatch(output, /Goodbye\./);
+});
+
+test("Ctrl+C does not hide an active worker execution", async () => {
+  const input = new PassThrough();
+  const captured = captureOutput();
+  let executionStarted;
+  let finishExecution;
+  const started = new Promise((resolve) => {
+    executionStarted = resolve;
+  });
+  const execution = new Promise((resolve) => {
+    finishExecution = resolve;
+  });
+  const options = consoleOptions(input, captured.output, {
+    env: { TERM: "xterm-256color" },
+    runPlanFn: async () => {
+      executionStarted();
+      return execution;
+    },
+  });
+  input.isTTY = true;
+  captured.output.isTTY = true;
+  captured.output.columns = 72;
+
+  const session = startConsole(options);
+  input.write("Ship the feature\n/run\n");
+  await started;
+  input.write("\u0003");
+  await new Promise((resolve) => setImmediate(resolve));
+  finishExecution({
+    dryRun: false,
+    runId: "run-active",
+    manifest: { id: "run-active", status: "succeeded", tasks: {} },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  input.end("/exit\n");
+  await session;
+
+  const output = stripAnsi(captured.read());
+  assert.match(output, /Worker execution is still running/);
+  assert.match(output, /Status succeeded/);
   assert.doesNotMatch(output, /Goodbye\./);
 });

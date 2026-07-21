@@ -27,11 +27,12 @@ Usage:
 
 Interactive mode:
   Run strategos without a subcommand. A selected agent CLI plans in read-only
-  mode; review its task graph, then use /preview or /run.
+  mode. Auto mode previews and runs the plan; use /mode manual to pause before
+  worker execution.
 
 Core model:
   Strategos has no model API. One installed CLI produces a JSON task graph for
-  other installed CLIs through the local adapter and authentication boundary.
+  the available installed CLIs through the local adapter and authentication boundary.
   Every runnable task gets an isolated Git worktree and a durable report.
   Strategos does not merge or push generated branches automatically.
 `;

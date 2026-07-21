@@ -26,6 +26,8 @@ Strategos provides a small neutral layer:
   schema-checked and shown before worker execution.
 - **Hybrid participation by default** so the strategist joins the healthy
   worker pool after planning; strict role separation remains configurable.
+- **Automatic execution by default**: each generated plan is previewed and then
+  run immediately; `/mode manual` restores an explicit execution gate.
 - **Parallel waves** capped by a configurable concurrency limit.
 - **Worktree isolation** for every task, including independent branches.
 - **Provider adapters** for `claude`, `codex`, and `copilot` commands already
@@ -62,7 +64,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.6.1
+STRATEGOS v0.7.0
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -70,28 +72,33 @@ Agents   ● claude  ·  ● codex  ·  ● copilot
 Runtime  Node v24.18.0 · Git 2.55.0
 
 What are we building?
-Describe a goal. The strategist plans first; /run starts workers.
+Describe a goal. Strategos previews the plan, then runs it automatically.
 
 ────────────────────────────────────────────────────────
-/help commands  ·  /strategist codex planner  ·  /run after review
+/help commands  ·  /mode auto  ·  preview → run
 ❯ Add CSV export and focused tests
 
 Planning  codex is reading the repository in read-only mode...
 Plan ready  proposed by codex
 Flow  1 implementation  →  2 review
+Auto mode  Previewing before execution...
+Preview  Max parallel: 3
+Executing  Starting the current plan...
 ```
 
 Ordinary text immediately asks the configured strategist CLI to inspect the
 repository in read-only mode and return a JSON task graph. In the default
 `hybrid` mode, every healthy agent CLI—including the strategist—may receive
 worker tasks after planning. Strategos uses no model SDK, API key, or embedded
-AI provider. It validates and displays the plan, but creates no worker worktree
-and starts no worker until the user enters `/run`. Press `Ctrl+C` to cancel a
-slow planning call; press it while idle to exit the console. Useful console
-commands include:
+AI provider. The default `auto` execution mode validates and previews the plan,
+then immediately starts its worker tasks. Use `/mode manual` before entering a
+goal when you want the console to stop for review and wait for `/run`. Press
+`Ctrl+C` to cancel a slow planning call; press it while idle to exit the
+console. Useful console commands include:
 
 ```text
-/new [goal]   /strategist [agent]  /plan       /load <file>
+/new [goal]   /mode [auto|manual]  /strategist [agent]  /plan
+/load <file>
 /save [file]  /preview               /run        /status [id]
 /agents       /context               /init       /help       /exit
 ```

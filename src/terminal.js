@@ -59,7 +59,7 @@ export function createTerminalUi(options = {}) {
   });
 }
 
-export function renderWelcome(ui, { version, root, strategist, checks }) {
+export function renderWelcome(ui, { version, root, strategist, executionMode = "auto", checks }) {
   const agents = checks.filter((check) => !["git", "node"].includes(check.name));
   const git = checks.find((check) => check.name === "git");
   const node = checks.find((check) => check.name === "node");
@@ -84,13 +84,21 @@ export function renderWelcome(ui, { version, root, strategist, checks }) {
     ...warnings,
     "",
     ui.bold("What are we building?"),
-    ui.muted("Describe a goal. The strategist plans first; /run starts workers."),
+    ui.muted(
+      executionMode === "auto"
+        ? "Describe a goal. Strategos previews the plan, then runs it automatically."
+        : "Describe a goal. Review the plan, then use /run to start workers.",
+    ),
   ].join("\n");
 }
 
-export function renderInputChrome(ui, strategist) {
+export function renderInputChrome(ui, executionMode = "auto") {
+  const behavior =
+    executionMode === "auto"
+      ? `${ui.muted("preview")} ${ui.muted("→")} ${ui.muted("run")}`
+      : `${ui.accent("/run")} ${ui.muted("after review")}`;
   return [
     ui.rule(),
-    `${ui.accent("/help")} ${ui.muted("commands")}  ${ui.muted("·")}  ${ui.accent(`/strategist ${strategist}`)} ${ui.muted("planner")}  ${ui.muted("·")}  ${ui.accent("/run")} ${ui.muted("after review")}`,
+    `${ui.accent("/help")} ${ui.muted("commands")}  ${ui.muted("·")}  ${ui.accent(`/mode ${executionMode}`)}  ${ui.muted("·")}  ${behavior}`,
   ].join("\n");
 }
