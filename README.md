@@ -99,7 +99,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.11.0
+STRATEGOS v0.13.0
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -143,8 +143,8 @@ console commands include:
 /new [goal]   /mode [auto|manual]  /strategist [agent]  /plan
 /attach [path]  /attachments  /detach <id|all>  /load <file>
 /save [file]  /preview               /run        /status [id]
-/sessions     /resume [id]           /agents     /context
-/init         /help                  /exit
+/sessions     /resume [id]           /agents     /reload
+/context      /init                  /help        /exit
 ```
 
 See [docs/interactive-console.md](docs/interactive-console.md) for the complete
@@ -315,27 +315,42 @@ strategos --help
 For development, run `npm link` again after switching to a different Node.js
 installation.
 
-### Upgrade Strategos
+### Maintain the CLI
 
 Inspect the detected installation mode without changing anything:
 
 ```bash
-strategos upgrade --dry-run
+strategos update --dry-run
 ```
 
 Then upgrade a persistent global npm installation:
 
 ```bash
-strategos upgrade
+strategos update
 strategos --version
-strategos doctor
+strategos reload
 ```
 
-`strategos update` is an alias. Source checkouts, `npm link`, temporary `npx`
-packages, and project-local dependencies are not overwritten automatically;
-the command prints the safe update steps for the detected mode. See
-[docs/upgrading.md](docs/upgrading.md) for recovery, pinning, and agent CLI
-upgrade workflows.
+`strategos upgrade` remains an alias. Source checkouts, `npm link`, temporary
+`npx` packages, and project-local dependencies are not overwritten
+automatically; the command prints the safe update steps for the detected mode.
+
+Other lifecycle commands are deliberately conservative:
+
+```bash
+strategos reload                    # Re-read project config and CLI health
+strategos cache clear --dry-run     # Inspect the Strategos-owned cache target
+strategos cache clear               # Remove only ~/.strategos/cache
+strategos uninstall --dry-run       # Inspect the install-specific removal step
+strategos uninstall                 # Remove a confirmed global npm install
+```
+
+`reload` is also available as `/reload` inside the interactive console.
+Uninstalling preserves project configuration, sessions, attachments, and run
+history. Cache clearing preserves those records plus
+`~/.strategos/projects.json`; it does not clear npm, npx, or provider CLI
+caches. See [docs/upgrading.md](docs/upgrading.md) for installation-specific
+behavior, recovery, pinning, and agent CLI upgrade workflows.
 
 ## Plan example
 

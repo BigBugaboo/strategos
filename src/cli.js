@@ -3,12 +3,18 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { clearStrategosCache, formatCacheClearResult } from "./cache.js";
 import { initializeProject, loadConfig } from "./config.js";
 import { startConsole } from "./console.js";
 import { runDoctor } from "./doctor.js";
 import { findRepoRoot } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
-import { formatUpgradeResult, upgradeStrategos } from "./upgrade.js";
+import {
+  formatUninstallResult,
+  formatUpgradeResult,
+  uninstallStrategos,
+  upgradeStrategos,
+} from "./upgrade.js";
 import { parsePositiveInteger } from "./utils.js";
 import { startWebServer } from "./web-server.js";
 
@@ -22,8 +28,12 @@ Usage:
   strategos
   strategos init [path]
   strategos doctor [--json]
+  strategos reload [--json]
   strategos web [--host HOST] [--port PORT]
+  strategos update [--dry-run]
   strategos upgrade [--dry-run]
+  strategos uninstall [--dry-run]
+  strategos cache clear [--dry-run]
   strategos run <plan.json> [--dry-run] [--max-parallel N]
   strategos status [run-id] [--json]
 
@@ -105,7 +115,7 @@ export async function main(args) {
     return;
   }
 
-  if (command === "doctor") {
+  if (command === "doctor" || command === "reload") {
     let root = process.cwd();
     try {
       root = await findRepoRoot(root);
@@ -114,8 +124,13 @@ export async function main(args) {
     }
     const config = await loadConfig(root);
     const checks = await runDoctor(config, root);
-    if (hasFlag(args, "--json")) console.log(JSON.stringify(checks, null, 2));
-    else printDoctor(checks);
+    if (hasFlag(args, "--json")) {
+      const result = command === "reload" ? { reloaded: true, root, checks } : checks;
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      if (command === "reload") console.log(`Reloaded configuration and CLI availability for ${root}.`);
+      printDoctor(checks);
+    }
     if (checks.some((check) => !check.ok)) process.exitCode = 2;
     return;
   }
@@ -137,6 +152,23 @@ export async function main(args) {
       entrypoint: process.argv[1],
     });
     console.log(formatUpgradeResult(result));
+    return;
+  }
+
+  if (command === "uninstall") {
+    const result = await uninstallStrategos({
+      dryRun: hasFlag(args, "--dry-run"),
+      entrypoint: process.argv[1],
+    });
+    console.log(formatUninstallResult(result));
+    return;
+  }
+
+  if (command === "cache" || command === "clear-cache") {
+    const subcommand = command === "clear-cache" ? "clear" : args[1];
+    if (subcommand !== "clear") throw new Error("cache requires the clear subcommand");
+    const result = await clearStrategosCache({ dryRun: hasFlag(args, "--dry-run") });
+    console.log(formatCacheClearResult(result));
     return;
   }
 

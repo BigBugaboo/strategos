@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { runCommand } from "./process.js";
 
 export const GITHUB_PACKAGE_SPEC = "github:BigBugaboo/strategos";
+export const PACKAGE_NAME = "strategos-cli";
 export const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
 
 async function exists(target) {
@@ -95,6 +96,40 @@ export function buildUpgradePlan(installation) {
   };
 }
 
+export function buildUninstallPlan(installation) {
+  if (installation.mode === "global-npm") {
+    return {
+      installation,
+      automatic: true,
+      commands: [{ command: "npm", args: ["uninstall", "--global", PACKAGE_NAME] }],
+    };
+  }
+
+  if (installation.mode === "source") {
+    return {
+      installation,
+      automatic: false,
+      commands: [
+        {
+          command: "npm",
+          args: ["unlink", "--global", PACKAGE_NAME],
+          cwd: installation.packageRoot,
+        },
+      ],
+    };
+  }
+
+  if (installation.mode === "npx") {
+    return { installation, automatic: false, commands: [] };
+  }
+
+  return {
+    installation,
+    automatic: false,
+    commands: [{ command: "npm", args: ["uninstall", PACKAGE_NAME] }],
+  };
+}
+
 function shellQuote(value) {
   if (/^[A-Za-z0-9_./:@=-]+$/.test(value)) return value;
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -130,6 +165,32 @@ export function formatUpgradeResult(result) {
   return lines.join("\n");
 }
 
+export function formatUninstallResult(result) {
+  const labels = {
+    "global-npm": "global npm package",
+    source: "source checkout or npm link",
+    npx: "temporary npx package",
+    "local-package": "project-local package",
+  };
+  const lines = [`Installation: ${labels[result.plan.installation.mode]}`];
+
+  if (result.uninstalled) {
+    lines.push("Uninstalled the Strategos CLI.");
+  } else if (result.dryRun) {
+    lines.push("Dry run: no changes were made.");
+  } else if (result.plan.installation.mode === "npx") {
+    lines.push("No persistent Strategos installation was found; npx uses a temporary package cache.");
+  } else {
+    lines.push("Automatic uninstall is not used for this installation mode.");
+  }
+
+  if (!result.uninstalled && result.plan.commands.length) {
+    lines.push("Run:", ...result.plan.commands.map((command) => `  ${displayCommand(command)}`));
+  }
+  lines.push("Project configuration, sessions, attachments, and run history were preserved.");
+  return lines.join("\n");
+}
+
 export async function upgradeStrategos(options = {}) {
   const run = options.run || runCommand;
   const installation = await detectInstallation({ ...options, run });
@@ -157,4 +218,27 @@ export async function upgradeStrategos(options = {}) {
   });
   const version = verification.code === 0 ? verification.stdout.trim() : undefined;
   return { plan, dryRun: false, updated: true, version };
+}
+
+export async function uninstallStrategos(options = {}) {
+  const run = options.run || runCommand;
+  const installation = await detectInstallation({ ...options, run });
+  const plan = buildUninstallPlan(installation);
+
+  if (options.dryRun || !plan.automatic) {
+    return { plan, dryRun: Boolean(options.dryRun), uninstalled: false };
+  }
+
+  const invocation = plan.commands[0];
+  const removal = await run(invocation.command, invocation.args, {
+    cwd: invocation.cwd,
+    timeoutMs: 120_000,
+    maxOutputBytes: 16 * 1024 * 1024,
+  });
+  if (removal.code !== 0) {
+    const detail = (removal.stderr || removal.stdout).trim();
+    throw new Error(`uninstall failed${detail ? `: ${detail}` : ""}`);
+  }
+
+  return { plan, dryRun: false, uninstalled: true };
 }

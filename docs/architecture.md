@@ -140,9 +140,13 @@ the old plan mechanically.
 
 ### Upgrade boundary
 
-The upgrade module detects whether Strategos is running from a global npm
+The lifecycle modules detect whether Strategos is running from a global npm
 package, an npx cache, a source checkout or npm link, or a project-local
-dependency. Only a confirmed global npm installation is updated automatically.
+dependency. Only a confirmed global npm installation is updated or uninstalled
+automatically. Reload re-reads project configuration and CLI health, while
+cache clearing is restricted to the dedicated `~/.strategos/cache` directory.
+Project configuration, sessions, attachments, and run evidence are never part
+of those lifecycle deletion targets.
 Other modes receive explicit commands so package-manager state and source
 checkouts are not silently replaced.
 

@@ -80,7 +80,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.11.0
+STRATEGOS v0.13.0
 Multi-agent strategy console · codex plans
 ~/你的/项目目录
 
@@ -119,8 +119,8 @@ Strategos 自身不接入模型 SDK、模型 API 或额外密钥。默认 `auto`
 /new [目标]   /mode [auto|manual]  /strategist [agent]  /plan
 /attach [路径]  /attachments  /detach <ID|all>  /load <文件>
 /save [文件]  /preview               /run        /status [ID]
-/sessions     /resume [ID]           /agents     /context
-/init         /help                  /exit
+/sessions     /resume [ID]           /agents     /reload
+/context      /init                  /help        /exit
 ```
 
 完整流程和当前边界详见
@@ -274,25 +274,39 @@ strategos --help
 
 参与 Strategos 本身的开发时，切换 Node.js 安装后需要重新执行 `npm link`。
 
-### 升级 Strategos
+### 维护 Strategos CLI
 
 先检查当前安装方式，不执行任何修改：
 
 ```bash
-strategos upgrade --dry-run
+strategos update --dry-run
 ```
 
 确认后升级 npm 全局安装：
 
 ```bash
-strategos upgrade
+strategos update
 strategos --version
-strategos doctor
+strategos reload
 ```
 
-`strategos update` 是等价别名。源码目录、`npm link`、临时 `npx` 包和项目
-本地依赖不会被自动覆盖，命令会针对识别出的安装方式打印安全升级步骤。
-恢复、版本固定和 Agent CLI 升级流程详见
+`strategos upgrade` 仍是等价别名。源码目录、`npm link`、临时 `npx` 包和
+项目本地依赖不会被自动覆盖，命令会针对识别出的安装方式打印安全升级步骤。
+
+其他生命周期命令同样遵循保守策略：
+
+```bash
+strategos reload                    # 重新读取项目配置和 CLI 健康状态
+strategos cache clear --dry-run     # 查看将被清理的 Strategos 缓存路径
+strategos cache clear               # 只删除 ~/.strategos/cache
+strategos uninstall --dry-run       # 查看当前安装方式对应的卸载步骤
+strategos uninstall                 # 删除已确认的 npm 全局安装
+```
+
+交互指令台中也可以使用 `/reload`。卸载 CLI 不会删除项目配置、Session、附件
+或运行历史；清缓存也会保留这些数据以及 `~/.strategos/projects.json`，并且不会
+清理 npm、npx 或厂商 CLI 自己的缓存。安装方式差异、恢复、版本固定和 Agent CLI
+升级流程详见
 [docs/upgrading.md](docs/upgrading.md)（英文标准文档）。
 
 ## 建议分工

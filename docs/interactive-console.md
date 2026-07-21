@@ -157,6 +157,7 @@ sessions also remain inspectable but are never offered for recovery.
 | `/resume [id]` | Choose a resumable session interactively, or re-plan a specific session ID directly. |
 | `/web [port]` | Start the local Web UI for this repository. The default port is `4310`; the server stops when the console exits. |
 | `/agents` | Re-run environment and agent CLI health checks. |
+| `/reload` | Re-read project configuration and refresh agent CLI availability without leaving the current console. |
 | `/context` | List the shared context files currently present. |
 | `/init` | Initialize Strategos without overwriting existing files. |
 | `/clear` | Clear an interactive terminal. |

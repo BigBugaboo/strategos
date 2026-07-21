@@ -132,6 +132,7 @@ function consoleHelp(ui = createTerminalUi()) {
   /resume [id]    Re-plan and continue the latest or selected session
   /web [port]     Start the local Web UI for this repository
   /agents         Recheck Git, Node.js, and agent CLIs
+  /reload         Reload project configuration and CLI availability
   /context        Show shared context files
   /init           Initialize Strategos without overwriting existing files
   /clear          Clear the terminal
@@ -708,9 +709,12 @@ export async function startConsole(options) {
       writeLine(output, ui.muted("Keep this Strategos console open while using the browser."));
       return;
     }
-    if (name === "agents" || name === "doctor") {
+    if (name === "agents" || name === "doctor" || name === "reload") {
       config = await loadConfigFn(root);
       checks = await runDoctorFn(config, root);
+      if (name === "reload") {
+        writeLine(output, `${ui.success("Reloaded")}  Project configuration and CLI availability`);
+      }
       writeLine(output, `${ui.bold("Agents & runtime")}\n${formatDoctor(checks, ui)}`);
       return;
     }
