@@ -13,98 +13,9 @@ import {
   Sparkle,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { quotaLabel } from "./model.js";
+import { historyDate, quotaLabel, sessionTaskState } from "./model.js";
 
 const AGENT_COLORS = { claude: "#39d5df", codex: "#9b5cff", copilot: "#a3aab6" };
-const DEMO_SESSIONS = [
-  ["fs_20260721_1024_e7b1", "Add a simple local Web UI", "running", "2026-07-21T10:24:00+08:00"],
-  ["fs_20260720_1642_a910", "Refactor orchestrator", "succeeded", "2026-07-20T16:42:00+08:00"],
-  ["fs_20260719_1120_b322", "Add test coverage", "succeeded", "2026-07-19T11:20:00+08:00"],
-  ["fs_20260718_1738_c105", "Fix CLI parsing bug", "succeeded", "2026-07-18T17:38:00+08:00"],
-  ["fs_20260717_0934_d814", "Improve logging", "succeeded", "2026-07-17T09:34:00+08:00"],
-  ["fs_20260716_1441_e201", "Update docs", "succeeded", "2026-07-16T14:41:00+08:00"],
-  ["fs_20260714_1059_f672", "Bump dependencies", "succeeded", "2026-07-14T10:59:00+08:00"],
-  ["fs_20260712_1815_f832", "Add export command", "succeeded", "2026-07-12T18:15:00+08:00"],
-].map(([id, goal, status, createdAt]) => ({
-  id,
-  goal,
-  status,
-  createdAt,
-  updatedAt: createdAt,
-  executionMode: "auto",
-  strategist: "codex",
-  workerAgents: status === "running" ? ["claude", "codex"] : ["claude", "codex", "copilot"],
-  plan:
-    id === "fs_20260721_1024_e7b1"
-      ? {
-          goal,
-          tasks: [
-            {
-              id: "ui-shell",
-              agent: "claude",
-              mode: "write",
-              prompt: "Implement the Web UI shell.",
-              dependsOn: [],
-            },
-            {
-              id: "project-setup",
-              agent: "codex",
-              mode: "write",
-              prompt: "Scaffold the Vite+ project.",
-              dependsOn: [],
-            },
-            {
-              id: "validation",
-              agent: "claude",
-              mode: "read-only",
-              prompt: "Validate the local integration.",
-              dependsOn: ["ui-shell", "project-setup"],
-            },
-          ],
-        }
-      : null,
-  events:
-    id === "fs_20260721_1024_e7b1"
-      ? [
-          {
-            type: "task_started",
-            at: "2026-07-21T10:25:12+08:00",
-            task: { id: "ui-shell", agent: "claude", status: "running" },
-          },
-          {
-            type: "task_started",
-            at: "2026-07-21T10:25:12+08:00",
-            task: { id: "project-setup", agent: "codex", status: "running" },
-          },
-          {
-            type: "task_finished",
-            at: "2026-07-21T10:25:18+08:00",
-            task: {
-              id: "ui-shell",
-              agent: "claude",
-              status: "succeeded",
-              changedFiles: ["web/src/App.jsx"],
-            },
-          },
-        ]
-      : [],
-}));
-
-const DEMO_BOOTSTRAP = {
-  version: "0.11.0",
-  repository: { name: "Focused Strategos", path: "~/projects/focused-strategos" },
-  executionMode: "auto",
-  strategist: "codex",
-  workerMode: "hybrid",
-  excludeExhausted: true,
-  capacity: [
-    { name: "claude", state: "available", remainingPercent: 72, installed: true, eligible: true },
-    { name: "codex", state: "available", remainingPercent: 18, installed: true, eligible: true },
-    { name: "copilot", state: "exhausted", remainingPercent: 0, installed: true, eligible: false },
-  ],
-  sessions: DEMO_SESSIONS,
-  activeSessionIds: [DEMO_SESSIONS[0].id],
-};
 
 function shortPath(value) {
   if (!value) return "";
@@ -117,16 +28,6 @@ function clock(value) {
   return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(
     new Date(value),
   );
-}
-
-function historyDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  const now = new Date("2026-07-21T12:00:00+08:00");
-  const delta = Math.floor((now - date) / 86_400_000);
-  if (delta === 0) return clock(value);
-  if (delta === 1) return "Yesterday";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
 function statusLabel(status) {
@@ -173,7 +74,14 @@ function AgentQuota({ agent }) {
   const exhausted = agent.state === "exhausted";
   const label = quotaLabel(agent);
   return (
-    <div className={`quota ${exhausted ? "quota-off" : ""}`}>
+    <div
+      className={`quota ${exhausted ? "quota-off" : ""}`}
+      role="progressbar"
+      aria-label={`${agent.name} capacity: ${label}`}
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-valuenow={value ?? undefined}
+    >
       <div className="quota-label">
         <span>{agent.name[0].toUpperCase() + agent.name.slice(1)}</span>
         <strong>{label}</strong>
@@ -294,29 +202,38 @@ function RunsView({ sessions, onSelect }) {
         <p>Plans and execution history saved in this repository.</p>
       </header>
       <div className="run-list">
-        {sessions.map((session) => (
-          <button key={session.id} onClick={() => onSelect(session)}>
-            <span>
-              <strong>{session.goal}</strong>
-              <small>{session.id}</small>
-            </span>
-            <span className={`status-pill status-${session.status}`}>
-              {statusLabel(session.status)}
-            </span>
-            <time>{historyDate(session.updatedAt)}</time>
-            <CaretRight />
-          </button>
-        ))}
+        {sessions.length ? (
+          sessions.map((session) => (
+            <button key={session.id} onClick={() => onSelect(session)}>
+              <span>
+                <strong>{session.goal}</strong>
+                <small>{session.id}</small>
+              </span>
+              <span className={`status-pill status-${session.status}`}>
+                {statusLabel(session.status)}
+              </span>
+              <time>{historyDate(session.updatedAt)}</time>
+              <CaretRight />
+            </button>
+          ))
+        ) : (
+          <div className="empty-list">
+            <ClockCounterClockwise />
+            <strong>No sessions yet</strong>
+            <span>Your first planned task will appear here.</span>
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
-function SettingsView({ data, onSaved, demo }) {
+function SettingsView({ data, onSaved }) {
   const [mode, setMode] = useState(data.executionMode);
   const [strategist, setStrategist] = useState(data.strategist);
   const [capacity, setCapacity] = useState(() => data.capacity.map((agent) => ({ ...agent })));
   const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
   const save = async (event) => {
     event.preventDefault();
     const payload = {
@@ -336,21 +253,17 @@ function SettingsView({ data, onSaved, demo }) {
         ),
       },
     };
-    if (demo) {
-      onSaved({
-        ...data,
-        executionMode: mode,
-        strategist,
-        capacity: capacity.map((agent) => ({
-          ...agent,
-          eligible: agent.installed && agent.state !== "exhausted",
-        })),
-      });
-    } else {
+    setSaving(true);
+    setMessage("Saving…");
+    try {
       const result = await api("/api/settings", { method: "PUT", body: JSON.stringify(payload) });
       onSaved({ ...data, ...result });
+      setMessage("Settings saved");
+    } catch (requestError) {
+      setMessage(requestError.message);
+    } finally {
+      setSaving(false);
     }
-    setMessage("Settings saved");
   };
   return (
     <section className="center-page settings-page">
@@ -444,8 +357,12 @@ function SettingsView({ data, onSaved, demo }) {
           ))}
         </div>
         <div className="settings-actions">
-          <button type="submit">Save settings</button>
-          <span>{message}</span>
+          <button type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save settings"}
+          </button>
+          <span role="status" aria-live="polite">
+            {message}
+          </span>
         </div>
       </form>
     </section>
@@ -456,9 +373,7 @@ function Inspector({ session, liveEvents, onRun, onResume }) {
   const [logsOpen, setLogsOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
   const events = [...(session?.events || []), ...liveEvents].slice(-5);
-  const tasks = Object.values(session?.manifest?.tasks || {});
-  const activeTasks = tasks.filter((task) => ["preparing", "running"].includes(task.status));
-  const files = [...new Set(tasks.flatMap((task) => task.changedFiles || []))];
+  const { activeTasks, changedFiles: files } = sessionTaskState(session, liveEvents);
   if (!session)
     return (
       <aside className="inspector inspector-empty">
@@ -473,20 +388,10 @@ function Inspector({ session, liveEvents, onRun, onResume }) {
           <h2>Current run</h2>
           <span>
             <i />
-            {activeTasks.length ||
-              (session.status === "running" ? session.workerAgents.length : 0)}{" "}
-            active
+            {activeTasks.length} active
           </span>
         </div>
-        {(activeTasks.length
-          ? activeTasks
-          : session.status === "running"
-            ? session.workerAgents.map((agent, index) => ({
-                agent,
-                id: index ? "Scaffolding project" : "Implementing UI shell",
-              }))
-            : []
-        ).map((task) => (
+        {activeTasks.map((task) => (
           <div className="active-task" key={`${task.agent}-${task.id}`}>
             <span className="agent-dot" style={{ background: AGENT_COLORS[task.agent] }} />
             <strong>{task.agent}</strong>
@@ -494,8 +399,10 @@ function Inspector({ session, liveEvents, onRun, onResume }) {
             <time>{clock(session.updatedAt)}</time>
           </div>
         ))}
-        {!activeTasks.length && session.status !== "running" && (
-          <p className="quiet">No active workers.</p>
+        {!activeTasks.length && (
+          <p className="quiet">
+            {session.status === "running" ? "Waiting for worker updates…" : "No active workers."}
+          </p>
         )}
       </section>
       <section className="inspector-section metadata">
@@ -535,7 +442,7 @@ function Inspector({ session, liveEvents, onRun, onResume }) {
         </div>
       </section>
       <section className="inspector-section disclosure">
-        <button onClick={() => setLogsOpen(!logsOpen)}>
+        <button aria-expanded={logsOpen} onClick={() => setLogsOpen(!logsOpen)}>
           <span>Recent output</span>
           {logsOpen ? <CaretDown /> : <CaretRight />}
         </button>
@@ -555,7 +462,7 @@ function Inspector({ session, liveEvents, onRun, onResume }) {
         )}
       </section>
       <section className="inspector-section disclosure">
-        <button onClick={() => setFilesOpen(!filesOpen)}>
+        <button aria-expanded={filesOpen} onClick={() => setFilesOpen(!filesOpen)}>
           <span>Files changed</span>
           {filesOpen ? <CaretDown /> : <CaretRight />}
         </button>
@@ -574,36 +481,46 @@ function Inspector({ session, liveEvents, onRun, onResume }) {
 }
 
 export function App() {
-  const demo = new URLSearchParams(window.location.search).has("demo");
-  const [data, setData] = useState(demo ? DEMO_BOOTSTRAP : null);
+  const [data, setData] = useState(null);
   const [view, setView] = useState("chat");
-  const [selectedId, setSelectedId] = useState(demo ? DEMO_SESSIONS[0].id : null);
+  const [selectedId, setSelectedId] = useState(null);
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState("auto");
   const [attachments, setAttachments] = useState([]);
   const [liveEvents, setLiveEvents] = useState([]);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const fileInput = useRef(null);
+  const bootstrapped = useRef(false);
   const selected = useMemo(
     () => data?.sessions.find((session) => session.id === selectedId) || null,
     [data, selectedId],
   );
 
   const refresh = async () => {
-    if (demo) return;
     const next = await api("/api/bootstrap");
+    const firstLoad = !bootstrapped.current;
     setData(next);
-    setMode(next.executionMode || "auto");
-    setSelectedId((current) => current || next.sessions[0]?.id || null);
+    if (firstLoad) {
+      setMode(next.executionMode || "auto");
+      bootstrapped.current = true;
+    }
+    setSelectedId((current) =>
+      current && next.sessions.some((session) => session.id === current)
+        ? current
+        : firstLoad
+          ? next.sessions[0]?.id || null
+          : null,
+    );
+    setError("");
   };
 
   useEffect(() => {
-    if (demo) return;
     refresh().catch((requestError) => setError(requestError.message));
   }, []);
 
   useEffect(() => {
-    if (demo || !selectedId) return undefined;
+    if (!selectedId) return undefined;
     const source = new EventSource(`/api/events/${selectedId}`);
     source.onmessage = (event) => {
       const parsed = JSON.parse(event.data);
@@ -615,7 +532,7 @@ export function App() {
         refresh().catch(() => {});
     };
     return () => source.close();
-  }, [demo, selectedId]);
+  }, [selectedId]);
 
   const selectSession = (session) => {
     setSelectedId(session.id);
@@ -627,64 +544,13 @@ export function App() {
     setView("chat");
     setDraft("");
     setAttachments([]);
+    setError("");
   };
   const send = async () => {
     const goal = draft.trim();
-    if (!goal) return;
+    if (!goal || submitting) return;
     setError("");
-    if (demo) {
-      const now = new Date().toISOString();
-      const session = {
-        ...DEMO_SESSIONS[0],
-        id: `demo-${Date.now()}`,
-        goal,
-        createdAt: now,
-        updatedAt: now,
-        status: "planning",
-        executionMode: mode,
-        plan: null,
-        events: [],
-      };
-      setData((current) => ({ ...current, sessions: [session, ...current.sessions] }));
-      setSelectedId(session.id);
-      setDraft("");
-      setAttachments([]);
-      window.setTimeout(
-        () =>
-          setData((current) => ({
-            ...current,
-            sessions: current.sessions.map((item) =>
-              item.id === session.id
-                ? {
-                    ...item,
-                    status: mode === "auto" ? "running" : "planned",
-                    plan: {
-                      goal,
-                      tasks: [
-                        {
-                          id: "implementation",
-                          agent: "claude",
-                          mode: "write",
-                          prompt: "Implement the requested change",
-                          dependsOn: [],
-                        },
-                        {
-                          id: "validation",
-                          agent: "codex",
-                          mode: "read-only",
-                          prompt: "Validate behavior and tests",
-                          dependsOn: ["implementation"],
-                        },
-                      ],
-                    },
-                  }
-                : item,
-            ),
-          })),
-        700,
-      );
-      return;
-    }
+    setSubmitting(true);
     try {
       const attachmentPaths = [];
       for (const file of attachments) {
@@ -712,21 +578,35 @@ export function App() {
       setSelectedId(session.id);
       setDraft("");
       setAttachments([]);
+      if (fileInput.current) fileInput.current.value = "";
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const runSelected = async () => {
+    if (!selected) return;
+    setError("");
+    try {
+      await api(`/api/sessions/${selected.id}/run`, { method: "POST", body: "{}" });
+      await refresh();
     } catch (requestError) {
       setError(requestError.message);
     }
   };
-  const runSelected = async () => {
-    if (!demo) await api(`/api/sessions/${selected.id}/run`, { method: "POST", body: "{}" });
-    refresh().catch(() => {});
-  };
   const resumeSelected = async () => {
-    if (!demo)
+    if (!selected) return;
+    setError("");
+    try {
       await api(`/api/sessions/${selected.id}/resume`, {
         method: "POST",
         body: JSON.stringify({ executionMode: mode }),
       });
-    refresh().catch(() => {});
+      await refresh();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
   };
 
   if (!data)
@@ -734,11 +614,16 @@ export function App() {
       <div className="loading-screen">
         <img src="/strategos-icon.png" alt="" />
         <p>{error || "Starting Strategos…"}</p>
+        {error && (
+          <button onClick={() => refresh().catch((requestError) => setError(requestError.message))}>
+            Retry
+          </button>
+        )}
       </div>
     );
   const exhausted = data.capacity.filter((agent) => agent.installed && !agent.eligible);
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${exhausted.length ? "has-capacity-notice" : ""}`}>
       <header className="topbar">
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
@@ -782,17 +667,21 @@ export function App() {
           <div className="history">
             <h2>History</h2>
             <div className="history-list">
-              {data.sessions.slice(0, 9).map((session) => (
-                <button
-                  key={session.id}
-                  className={selectedId === session.id && view === "chat" ? "selected" : ""}
-                  onClick={() => selectSession(session)}
-                >
-                  <span>{session.goal}</span>
-                  <time>{historyDate(session.updatedAt)}</time>
-                  <i className={`status-${session.status}`} />
-                </button>
-              ))}
+              {data.sessions.length ? (
+                data.sessions.slice(0, 9).map((session) => (
+                  <button
+                    key={session.id}
+                    className={selectedId === session.id && view === "chat" ? "selected" : ""}
+                    onClick={() => selectSession(session)}
+                  >
+                    <span>{session.goal}</span>
+                    <time>{historyDate(session.updatedAt)}</time>
+                    <i className={`status-${session.status}`} />
+                  </button>
+                ))
+              ) : (
+                <p className="history-empty">No sessions yet.</p>
+              )}
             </div>
             <button className="view-all" onClick={() => setView("runs")}>
               View all sessions <CaretRight />
@@ -803,7 +692,7 @@ export function App() {
           {view === "runs" ? (
             <RunsView sessions={data.sessions} onSelect={selectSession} />
           ) : view === "settings" ? (
-            <SettingsView data={data} demo={demo} onSaved={setData} />
+            <SettingsView data={data} onSaved={setData} />
           ) : (
             <SessionChat session={selected} capacity={data.capacity} liveEvents={liveEvents} />
           )}
@@ -827,6 +716,7 @@ export function App() {
                     <button
                       className="icon-button"
                       title="Attach an image"
+                      aria-label="Attach an image"
                       onClick={() => fileInput.current?.click()}
                     >
                       <Paperclip />
@@ -841,6 +731,8 @@ export function App() {
                     />
                     <button
                       className="mode-button"
+                      aria-label={`Execution mode: ${mode}`}
+                      aria-pressed={mode === "manual"}
                       onClick={() => setMode((value) => (value === "auto" ? "manual" : "auto"))}
                     >
                       <Sparkle weight="fill" />
@@ -853,12 +745,20 @@ export function App() {
                       </span>
                     )}
                   </div>
-                  <button className="send-button" onClick={send} disabled={!draft.trim()}>
-                    Send <ArrowRight />
+                  <button
+                    className="send-button"
+                    onClick={send}
+                    disabled={!draft.trim() || submitting}
+                  >
+                    {submitting ? "Sending…" : "Send"} <ArrowRight />
                   </button>
                 </div>
               </div>
-              {error && <div className="composer-error">{error}</div>}
+              {error && (
+                <div className="composer-error" role="alert">
+                  {error}
+                </div>
+              )}
             </div>
           )}
         </main>
