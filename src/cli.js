@@ -85,7 +85,7 @@ export async function main(args) {
   const command = args[0];
   if (!command) {
     const root = await findRepoRoot(process.cwd());
-    await startConsole({ root, version: VERSION });
+    await startConsole({ root, version: VERSION, startWebServerFn: startWebServer });
     return;
   }
   if (command === "help" || hasFlag(args, "--help") || hasFlag(args, "-h")) {

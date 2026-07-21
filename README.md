@@ -160,6 +160,15 @@ cd /path/to/your/repository
 strategos web
 ```
 
+From an active Strategos console, the equivalent shortcut is:
+
+```text
+/web
+```
+
+Use `/web 4311` to choose another local port. Keep the console open while the
+browser is using the embedded server; `/exit` stops it cleanly.
+
 Open `http://127.0.0.1:4310`. The server binds to localhost by default. Use
 `--host` and `--port` only when you intentionally need a different interface.
 The production page does not include seeded demo data; it reads the current
