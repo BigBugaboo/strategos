@@ -5,8 +5,43 @@ import path from "node:path";
 import test from "node:test";
 import { startWebServer } from "../src/web-server.js";
 
+function memorySessionStore(repository, initial = []) {
+  let sequence = initial.length;
+  const sessions = new Map(initial.map((session) => [session.id, session]));
+  return {
+    async list() {
+      return [...sessions.values()];
+    },
+    async load(id) {
+      return sessions.get(id);
+    },
+    async create(input) {
+      sequence += 1;
+      const session = {
+        id: `session-${sequence}`,
+        repository,
+        attempts: 1,
+        events: [],
+        ...input,
+        status: "planning",
+      };
+      sessions.set(session.id, session);
+      return session;
+    },
+    async update(session, patch) {
+      const updated = { ...session, ...patch };
+      sessions.set(updated.id, updated);
+      return updated;
+    },
+    async appendEvent(session, event) {
+      return this.update(session, { events: [...(session.events || []), event] });
+    },
+  };
+}
+
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "strategos-web-test-"));
+  const secondRoot = path.join(root, "second-project");
   const webRoot = path.join(root, "dist");
   await fs.mkdir(webRoot, { recursive: true });
   await fs.writeFile(path.join(webRoot, "index.html"), "<main>Strategos Web</main>");
@@ -24,9 +59,27 @@ async function fixture(t) {
       },
     },
   };
-  const sessionStore = {
-    list: async () => [],
-    load: async () => undefined,
+  const sessionStore = memorySessionStore(root);
+  const secondSession = {
+    id: "second-session",
+    repository: secondRoot,
+    goal: "Work in the second project",
+    status: "planned",
+    events: [],
+  };
+  const secondSessionStore = memorySessionStore(secondRoot, [secondSession]);
+  const planningRoots = [];
+  const projects = [
+    { name: path.basename(root), path: root },
+    { name: path.basename(secondRoot), path: secondRoot },
+  ];
+  const projectRegistry = {
+    list: async () => projects,
+    resolve: async (projectPath) => {
+      const project = projects.find((item) => item.path === (projectPath || root));
+      if (!project) throw Object.assign(new Error("project is not registered"), { status: 403 });
+      return project;
+    },
   };
   const result = await startWebServer({
     root,
@@ -42,13 +95,30 @@ async function fixture(t) {
       { name: "copilot", ok: true, detail: "copilot" },
     ],
     sessionStore,
+    createSessionStoreFn: (projectRoot) => projectRoot === secondRoot ? secondSessionStore : sessionStore,
+    projectRegistry,
+    planWithStrategistFn: async (input) => {
+      planningRoots.push(input.root);
+      return {
+        version: 1,
+        goal: input.goal,
+        context: [],
+        tasks: [{
+          id: "review",
+          agent: "codex",
+          mode: "read-only",
+          prompt: "Review the selected project.",
+          dependsOn: [],
+        }],
+      };
+    },
   });
   t.after(async () => {
     result.server.closeAllConnections();
     await new Promise((resolve) => result.server.close(resolve));
     await fs.rm(root, { recursive: true, force: true });
   });
-  return { ...result, root };
+  return { ...result, root, secondRoot, planningRoots };
 }
 
 test("Web bootstrap exposes repository, sessions, and eligible capacity", async (t) => {
@@ -57,8 +127,39 @@ test("Web bootstrap exposes repository, sessions, and eligible capacity", async 
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.deepEqual(body.repository, { name: path.basename(root), path: root });
+  assert.equal(body.projects.length, 2);
   assert.equal(body.capacity.find((agent) => agent.name === "copilot").eligible, false);
   assert.deepEqual(body.sessions, []);
+});
+
+test("Web APIs scope sessions to the selected registered project", async (t) => {
+  const { url, secondRoot, planningRoots } = await fixture(t);
+  const response = await fetch(`${url}/api/bootstrap`, {
+    headers: { "x-strategos-project": secondRoot },
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.repository, { name: "second-project", path: secondRoot });
+  assert.equal(body.sessions[0].goal, "Work in the second project");
+
+  const unregistered = await fetch(`${url}/api/bootstrap`, {
+    headers: { "x-strategos-project": path.join(secondRoot, "unregistered") },
+  });
+  assert.equal(unregistered.status, 403);
+
+  const goal = await fetch(`${url}/api/goals`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-strategos-project": secondRoot,
+    },
+    body: JSON.stringify({ goal: "Review this repository", executionMode: "manual" }),
+  });
+  assert.equal(goal.status, 202);
+  for (let attempt = 0; attempt < 20 && !planningRoots.length; attempt += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepEqual(planningRoots, [secondRoot]);
 });
 
 test("Web server serves the built single-page application", async (t) => {

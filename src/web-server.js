@@ -10,6 +10,7 @@ import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
+import { createProjectRegistry } from "./projects.js";
 import { buildResumeContext, createSessionStore } from "./session.js";
 
 const WEB_ROOT = fileURLToPath(new URL("../web/dist/", import.meta.url));
@@ -105,7 +106,7 @@ function safeAttachmentName(name, extension) {
 }
 
 export function createWebApplication(options) {
-  const root = options.root;
+  const initialRoot = path.resolve(options.root);
   const version = options.version || "development";
   const webRoot = options.webRoot || WEB_ROOT;
   const loadConfigFn = options.loadConfigFn || loadConfig;
@@ -115,23 +116,37 @@ export function createWebApplication(options) {
   const runPlanFn = options.runPlanFn || runPlan;
   const attachImageFn = options.attachImageFn || attachImage;
   const resolveAttachmentsFn = options.resolveAttachmentsFn || resolveAttachments;
-  const sessionStore = options.sessionStore || createSessionStore(root);
+  const createSessionStoreFn = options.createSessionStoreFn || createSessionStore;
+  const projectRegistry = options.projectRegistry || createProjectRegistry({ initialRoot });
+  const sessionStores = new Map();
+  if (options.sessionStore) sessionStores.set(initialRoot, options.sessionStore);
   const subscribers = new Map();
   const active = new Map();
 
-  const publish = (sessionId, event) => {
+  const projectContext = async (projectPath) => {
+    const project = await projectRegistry.resolve(projectPath || initialRoot);
+    let sessionStore = sessionStores.get(project.path);
+    if (!sessionStore) {
+      sessionStore = createSessionStoreFn(project.path);
+      sessionStores.set(project.path, sessionStore);
+    }
+    return { project, root: project.path, sessionStore };
+  };
+  const contextKey = (context, sessionId) => `${context.root}\u0000${sessionId}`;
+
+  const publish = (context, sessionId, event) => {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const response of subscribers.get(sessionId) || []) response.write(payload);
+    for (const response of subscribers.get(contextKey(context, sessionId)) || []) response.write(payload);
   };
 
-  const updateSession = async (session, patch, event) => {
-    const updated = await sessionStore.update(session, patch);
-    if (event) publish(updated.id, event);
+  const updateSession = async (context, session, patch, event) => {
+    const updated = await context.sessionStore.update(session, patch);
+    if (event) publish(context, updated.id, event);
     return updated;
   };
 
-  const runSession = async (initialSession, config, planInput) => {
-    let session = await updateSession(initialSession, {
+  const runSession = async (context, initialSession, config, planInput) => {
+    let session = await updateSession(context, initialSession, {
       status: "running",
       plan: planInput,
       error: null,
@@ -140,19 +155,19 @@ export function createWebApplication(options) {
     let checkpoint = Promise.resolve();
     try {
       const result = await runPlanFn({
-        root,
+        root: context.root,
         config,
         planInput,
         onEvent: (event) => {
-          publish(session.id, event);
+          publish(context, session.id, event);
           checkpoint = checkpoint.then(async () => {
-            session = await sessionStore.appendEvent(session, event);
+            session = await context.sessionStore.appendEvent(session, event);
           });
           return checkpoint;
         },
       });
       await checkpoint;
-      session = await updateSession(session, {
+      session = await updateSession(context, session, {
         status: result.manifest.status === "succeeded" ? "succeeded" : "failed",
         runId: result.runId,
         manifest: result.manifest,
@@ -161,26 +176,26 @@ export function createWebApplication(options) {
       }, { type: "session_complete", status: result.manifest.status, runId: result.runId });
     } catch (error) {
       await checkpoint.catch(() => {});
-      session = await updateSession(session, {
+      session = await updateSession(context, session, {
         status: "failed",
         error: String(error.message || error).slice(0, 4_000),
         finishedAt: new Date().toISOString(),
       }, { type: "session_error", error: String(error.message || error) });
     } finally {
-      active.delete(session.id);
+      active.delete(contextKey(context, session.id));
     }
   };
 
-  const planSession = async ({ goal, attachmentPaths = [], executionMode = "auto", resumeSession, existingSession }) => {
-    let config = await loadConfigFn(root);
-    const checks = await runDoctorFn(config, root);
+  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", resumeSession, existingSession }) => {
+    let config = await loadConfigFn(context.root);
+    const checks = await runDoctorFn(config, context.root);
     const healthy = healthyAgentNames(checks, config);
     const agents = eligibleAgents(healthy, config);
     const strategist = selectStrategist(config, agents);
     const workerAgents = selectWorkerAgents(agents, strategist, config.workerMode);
-    const attachments = await resolveAttachmentsFn(root, attachmentPaths);
+    const attachments = await resolveAttachmentsFn(context.root, attachmentPaths);
     let session = resumeSession
-      ? await sessionStore.update(resumeSession, {
+      ? await context.sessionStore.update(resumeSession, {
         goal: goal.trim(),
         strategist,
         workerAgents,
@@ -192,21 +207,21 @@ export function createWebApplication(options) {
         finishedAt: null,
       })
       : existingSession
-        ? await sessionStore.update(existingSession, {
+        ? await context.sessionStore.update(existingSession, {
           attachments: serializableAttachments(attachments),
           executionMode,
         })
-        : await sessionStore.create({
+        : await context.sessionStore.create({
           goal,
           strategist,
           workerAgents,
           executionMode,
           attachments: serializableAttachments(attachments),
         });
-    publish(session.id, { type: "planning_started", strategist, workerAgents });
+    publish(context, session.id, { type: "planning_started", strategist, workerAgents });
     try {
       const plan = await planWithStrategistFn({
-        root,
+        root: context.root,
         config,
         goal,
         strategist,
@@ -218,25 +233,26 @@ export function createWebApplication(options) {
         ...plan,
         attachments: attachments.map((attachment) => attachment.relativePath),
       };
-      session = await updateSession(session, {
+      session = await updateSession(context, session, {
         status: executionMode === "auto" ? "previewed" : "planned",
         plan: planWithAttachments,
         attachments: serializableAttachments(attachments),
       }, { type: "plan_ready", plan: planWithAttachments, executionMode });
-      if (executionMode === "auto") await runSession(session, config, planWithAttachments);
+      if (executionMode === "auto") await runSession(context, session, config, planWithAttachments);
     } catch (error) {
-      session = await updateSession(session, {
+      session = await updateSession(context, session, {
         status: "failed",
         error: String(error.message || error).slice(0, 4_000),
         finishedAt: new Date().toISOString(),
       }, { type: "session_error", error: String(error.message || error) });
-      active.delete(session.id);
+      active.delete(contextKey(context, session.id));
     }
   };
 
-  const startBackground = (session, promise) => {
-    active.set(session.id, promise);
-    promise.catch(() => active.delete(session.id));
+  const startBackground = (context, session, promise) => {
+    const key = contextKey(context, session.id);
+    active.set(key, promise);
+    promise.catch(() => active.delete(key));
   };
 
   const serveStatic = async (request, response, pathname) => {
@@ -270,13 +286,26 @@ export function createWebApplication(options) {
     const url = new URL(request.url, "http://localhost");
     const pathname = decodeURIComponent(url.pathname);
     try {
+      if (request.method === "POST" && pathname === "/api/projects") {
+        const input = await readJsonBody(request);
+        const project = await projectRegistry.add(input.path);
+        sendJson(response, 201, { project, projects: await projectRegistry.list() });
+        return;
+      }
+      const projectHeader = request.headers["x-strategos-project"];
+      const selectedProject = typeof projectHeader === "string"
+        ? decodeURIComponent(projectHeader)
+        : url.searchParams.get("project");
+      const context = await projectContext(typeof selectedProject === "string" ? selectedProject : undefined);
+      const { root, sessionStore } = context;
       if (request.method === "GET" && pathname === "/api/bootstrap") {
         const config = await loadConfigFn(root);
         const checks = await runDoctorFn(config, root);
         const sessions = await sessionStore.list({ limit: 30 });
         sendJson(response, 200, {
           version,
-          repository: { name: path.basename(root), path: root },
+          repository: context.project,
+          projects: await projectRegistry.list(),
           executionMode: config.executionMode || "auto",
           strategist: config.strategist,
           workerMode: config.workerMode,
@@ -284,7 +313,9 @@ export function createWebApplication(options) {
           capacity: capacitySummary(config, checks),
           excludeExhausted: config.capacity?.excludeExhausted !== false,
           sessions: sessions.map(publicSession),
-          activeSessionIds: [...active.keys()],
+          activeSessionIds: [...active.keys()]
+            .filter((key) => key.startsWith(`${root}\u0000`))
+            .map((key) => key.slice(root.length + 1)),
         });
         return;
       }
@@ -303,18 +334,19 @@ export function createWebApplication(options) {
       const eventMatch = pathname.match(/^\/api\/events\/([a-zA-Z0-9-]+)$/);
       if (request.method === "GET" && eventMatch) {
         const sessionId = eventMatch[1];
+        const key = contextKey(context, sessionId);
         response.writeHead(200, {
           "content-type": "text/event-stream",
           "cache-control": "no-cache",
           connection: "keep-alive",
         });
         response.write(`data: ${JSON.stringify({ type: "connected", sessionId })}\n\n`);
-        const clients = subscribers.get(sessionId) || new Set();
+        const clients = subscribers.get(key) || new Set();
         clients.add(response);
-        subscribers.set(sessionId, clients);
+        subscribers.set(key, clients);
         request.on("close", () => {
           clients.delete(response);
-          if (!clients.size) subscribers.delete(sessionId);
+          if (!clients.size) subscribers.delete(key);
         });
         return;
       }
@@ -375,13 +407,13 @@ export function createWebApplication(options) {
           executionMode,
           attachments: [],
         });
-        const background = planSession({
+        const background = planSession(context, {
           goal,
           attachmentPaths: input.attachmentPaths || [],
           executionMode,
           existingSession: session,
         });
-        startBackground(session, background);
+        startBackground(context, session, background);
         sendJson(response, 202, publicSession(session));
         return;
       }
@@ -390,10 +422,12 @@ export function createWebApplication(options) {
         const session = await sessionStore.load(runMatch[1]);
         if (!session) return sendJson(response, 404, { error: "session not found" });
         if (!session.plan) throw Object.assign(new Error("session has no plan"), { status: 409 });
-        if (active.has(session.id)) throw Object.assign(new Error("session is already active"), { status: 409 });
+        if (active.has(contextKey(context, session.id))) {
+          throw Object.assign(new Error("session is already active"), { status: 409 });
+        }
         const config = await loadConfigFn(root);
-        const background = runSession(session, config, session.plan);
-        startBackground(session, background);
+        const background = runSession(context, session, config, session.plan);
+        startBackground(context, session, background);
         sendJson(response, 202, publicSession(session));
         return;
       }
@@ -401,15 +435,17 @@ export function createWebApplication(options) {
       if (request.method === "POST" && resumeMatch) {
         const session = await sessionStore.load(resumeMatch[1]);
         if (!session) return sendJson(response, 404, { error: "session not found" });
-        if (active.has(session.id)) throw Object.assign(new Error("session is already active"), { status: 409 });
+        if (active.has(contextKey(context, session.id))) {
+          throw Object.assign(new Error("session is already active"), { status: 409 });
+        }
         const input = await readJsonBody(request);
-        const background = planSession({
+        const background = planSession(context, {
           goal: String(input.goal || session.goal),
           attachmentPaths: input.attachmentPaths || session.attachments || [],
           executionMode: input.executionMode || session.executionMode || "auto",
           resumeSession: session,
         });
-        startBackground(session, background);
+        startBackground(context, session, background);
         sendJson(response, 202, publicSession(session));
         return;
       }

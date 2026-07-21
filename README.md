@@ -174,6 +174,11 @@ Open `http://127.0.0.1:4310`. The server binds to localhost by default. Use
 The production page does not include seeded demo data; it reads the current
 repository and its locally persisted Strategos sessions directly.
 
+Use the project selector beside the Strategos icon to add or switch local Git
+repositories. The selected path scopes configuration, sessions, attachments,
+AI repository context, planning, and worker execution. Registered paths are
+stored locally in `~/.strategos/projects.json`.
+
 The top bar shows the latest manually recorded CLI capacity. Because Claude,
 Codex, and Copilot do not expose one consistent machine-readable quota API,
 Strategos never invents exact token counts. Mark a CLI as `Exhausted` in

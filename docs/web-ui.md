@@ -27,6 +27,19 @@ identity, CLI health, capacity settings, session history, plans, task events,
 and changed files are loaded from the local Strategos API. A repository with no
 saved sessions opens in the empty New task state.
 
+## Project context
+
+The repository used to start `strategos web` is the initial project. Use the
+project selector in the header to add another local path. Strategos resolves the
+path to its Git root, rejects paths outside an accessible Git repository, and
+stores the local project list in `~/.strategos/projects.json`.
+
+Every Web request carries the selected project path. Configuration, durable
+sessions, attachments, repository context collection, strategist planning,
+worktrees, runs, and changed-file reporting are all resolved from that project.
+Switching projects therefore changes the AI working context rather than only
+changing a label in the interface. Project paths and context remain local.
+
 ## Vite+ source workflow
 
 Install Vite+ once on macOS or Linux:

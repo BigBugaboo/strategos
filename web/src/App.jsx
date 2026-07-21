@@ -5,6 +5,7 @@ import {
   CaretRight,
   CheckCircle,
   ClockCounterClockwise,
+  FolderOpen,
   GearSix,
   Paperclip,
   Play,
@@ -16,6 +17,7 @@ import {
 import { historyDate, quotaLabel, sessionTaskState } from "./model.js";
 
 const AGENT_COLORS = { claude: "#39d5df", codex: "#9b5cff", copilot: "#a3aab6" };
+const PROJECT_STORAGE_KEY = "strategos.selectedProject";
 
 function shortPath(value) {
   if (!value) return "";
@@ -59,14 +61,99 @@ function eventText(event) {
   return event.type?.replaceAll("_", " ") || "Session updated";
 }
 
-async function api(path, options) {
+function savedProjectPath() {
+  return globalThis.localStorage?.getItem(PROJECT_STORAGE_KEY) || "";
+}
+
+async function api(path, options = {}) {
+  const { projectPath = savedProjectPath(), headers, ...requestOptions } = options;
   const response = await fetch(path, {
-    headers: { "content-type": "application/json", ...options?.headers },
-    ...options,
+    headers: {
+      "content-type": "application/json",
+      ...(projectPath ? { "x-strategos-project": encodeURIComponent(projectPath) } : {}),
+      ...headers,
+    },
+    ...requestOptions,
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
   return result;
+}
+
+function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
+  const [adding, setAdding] = useState(false);
+  const [projectPath, setProjectPath] = useState("");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const addProject = async (event) => {
+    event.preventDefault();
+    if (!projectPath.trim() || saving) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await onAdd(projectPath.trim());
+      setProjectPath("");
+      setAdding(false);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="project-picker">
+      <div className="project-select-row">
+        <FolderOpen />
+        <select
+          aria-label="Current project"
+          value={repository.path}
+          disabled={disabled}
+          onChange={(event) => void onSelect(event.target.value).catch(() => {})}
+        >
+          {projects.map((project) => (
+            <option key={project.path} value={project.path}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          aria-label="Add local project"
+          title="Add local project"
+          onClick={() => {
+            setAdding((value) => !value);
+            setMessage("");
+          }}
+        >
+          <PlusSquare />
+        </button>
+      </div>
+      <span title={repository.path}>{shortPath(repository.path)}</span>
+      {adding && (
+        <form className="project-popover" onSubmit={addProject}>
+          <label htmlFor="project-path">Local Git repository path</label>
+          <input
+            id="project-path"
+            autoFocus
+            placeholder="/Users/you/projects/example"
+            value={projectPath}
+            onChange={(event) => setProjectPath(event.target.value)}
+          />
+          {message && <p role="alert">{message}</p>}
+          <div>
+            <button type="button" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!projectPath.trim() || saving}>
+              {saving ? "Adding…" : "Add project"}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
 }
 
 function AgentQuota({ agent }) {
@@ -495,6 +582,7 @@ export function App() {
   const [liveEvents, setLiveEvents] = useState([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [switchingProject, setSwitchingProject] = useState(false);
   const fileInput = useRef(null);
   const bootstrapped = useRef(false);
   const selected = useMemo(
@@ -502,11 +590,11 @@ export function App() {
     [data, selectedId],
   );
 
-  const refresh = async () => {
-    const next = await api("/api/bootstrap");
+  const refresh = async (projectPath = savedProjectPath(), resetMode = false) => {
+    const next = await api("/api/bootstrap", { projectPath });
     const firstLoad = !bootstrapped.current;
     setData(next);
-    if (firstLoad) {
+    if (firstLoad || resetMode) {
       setMode(next.executionMode || "auto");
       bootstrapped.current = true;
     }
@@ -521,12 +609,21 @@ export function App() {
   };
 
   useEffect(() => {
-    refresh().catch((requestError) => setError(requestError.message));
+    const storedProject = savedProjectPath();
+    refresh(storedProject).catch((requestError) => {
+      if (!storedProject) {
+        setError(requestError.message);
+        return;
+      }
+      globalThis.localStorage?.removeItem(PROJECT_STORAGE_KEY);
+      refresh("").catch((fallbackError) => setError(fallbackError.message));
+    });
   }, []);
 
   useEffect(() => {
     if (!selectedId) return undefined;
-    const source = new EventSource(`/api/events/${selectedId}`);
+    const project = encodeURIComponent(data.repository.path);
+    const source = new EventSource(`/api/events/${selectedId}?project=${project}`);
     source.onmessage = (event) => {
       const parsed = JSON.parse(event.data);
       if (parsed.type !== "connected")
@@ -537,7 +634,37 @@ export function App() {
         refresh().catch(() => {});
     };
     return () => source.close();
-  }, [selectedId]);
+  }, [data?.repository.path, selectedId]);
+
+  const selectProject = async (projectPath) => {
+    if (!projectPath || projectPath === data.repository.path || switchingProject) return;
+    const previousPath = data.repository.path;
+    setSwitchingProject(true);
+    setError("");
+    setSelectedId(null);
+    setLiveEvents([]);
+    globalThis.localStorage?.setItem(PROJECT_STORAGE_KEY, projectPath);
+    try {
+      await refresh(projectPath, true);
+      setView("chat");
+      setDraft("");
+      setAttachments([]);
+    } catch (requestError) {
+      globalThis.localStorage?.setItem(PROJECT_STORAGE_KEY, previousPath);
+      setError(requestError.message);
+      throw requestError;
+    } finally {
+      setSwitchingProject(false);
+    }
+  };
+
+  const addProject = async (projectPath) => {
+    const result = await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ path: projectPath }),
+    });
+    await selectProject(result.project.path);
+  };
 
   const selectSession = (session) => {
     setSelectedId(session.id);
@@ -632,8 +759,13 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
-          <strong>{data.repository.name}</strong>
-          <span>{shortPath(data.repository.path)}</span>
+          <ProjectPicker
+            repository={data.repository}
+            projects={data.projects}
+            disabled={switchingProject}
+            onSelect={selectProject}
+            onAdd={addProject}
+          />
         </div>
         <div className="quota-strip">
           {data.capacity.map((agent) => (
