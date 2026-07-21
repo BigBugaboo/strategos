@@ -53,6 +53,8 @@ Strategos provides a small neutral layer:
 - **Defensive completion checks**: exit code zero without a report is treated as
   failure because some older agent CLIs return success after provider errors.
 - **Human-controlled integration**: review and merge the branches you want.
+- **Local Web UI**: a Vite+ interface for chat, saved sessions, run evidence,
+  settings, image attachments, and manual provider-capacity tracking.
 
 ## How it works
 
@@ -101,7 +103,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.10.0
+STRATEGOS v0.11.0
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -151,6 +153,30 @@ console commands include:
 
 See [docs/interactive-console.md](docs/interactive-console.md) for the complete
 workflow and current boundaries.
+
+### Start the local Web UI
+
+The packaged Web UI uses the same local configuration, session journal,
+planner, worktree runner, and authenticated agent CLIs as the terminal console:
+
+```bash
+cd /path/to/your/repository
+strategos web
+```
+
+Open `http://127.0.0.1:4310`. The server binds to localhost by default. Use
+`--host` and `--port` only when you intentionally need a different interface.
+
+The top bar shows the latest manually recorded CLI capacity. Because Claude,
+Codex, and Copilot do not expose one consistent machine-readable quota API,
+Strategos never invents exact token counts. Mark a CLI as `Exhausted` in
+Settings and it is removed from both strategist fallback and the worker pool;
+`Unknown` remains usable. Auto mode previews and runs the generated plan, while
+Manual mode stops after planning and exposes a Run action. Session history,
+image upload, Resume, recent events, and changed files remain local.
+
+See [docs/web-ui.md](docs/web-ui.md) for Vite+ development commands and the
+capacity policy.
 
 ### Add image context
 
@@ -227,6 +253,7 @@ git clone https://github.com/BigBugaboo/strategos.git
 cd strategos
 fnm use --install-if-missing # optional when Node.js 24 is already active
 npm ci
+npm run web:install
 npm run verify
 npm link
 strategos --help

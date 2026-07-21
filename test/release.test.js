@@ -23,7 +23,9 @@ test("release workflow verifies and publishes an unreleased package version", as
   assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /contents: write/);
-  assert.match(workflow, /node-version-file: \.node-version/);
+  assert.match(workflow, /voidzero-dev\/setup-vp@v1/);
+  assert.match(workflow, /node-version: ["']?24["']?/);
+  assert.match(workflow, /vp install --frozen-lockfile/);
   assert.match(workflow, /gh release view "\$tag"/);
   assert.match(workflow, /npm run verify/);
   assert.match(workflow, /gh release create/);

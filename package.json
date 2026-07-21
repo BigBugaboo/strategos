@@ -1,6 +1,6 @@
 {
   "name": "strategos-cli",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Local-first orchestration for Claude Code, Codex CLI, and GitHub Copilot CLI.",
   "type": "module",
   "bin": {
@@ -9,11 +9,17 @@
   "scripts": {
     "start": "node ./bin/strategos.js",
     "doctor": "node ./bin/strategos.js doctor",
+    "web:api": "node ./bin/strategos.js web --port 4311",
+    "web:dev": "cd web && vp dev",
+    "web:install": "cd web && vp install",
+    "web:check": "cd web && vp check src vite.config.mjs package.json index.html",
+    "web:test": "cd web && vp test --run",
+    "web:build": "cd web && vp build",
     "hooks:install": "node ./scripts/install-hooks.js",
     "prepare": "node ./scripts/install-hooks.js",
-    "check": "node --check ./bin/strategos.js && node --check ./scripts/install-hooks.js && node --check ./src/cli.js && node --check ./src/attachments.js && node --check ./src/console.js && node --check ./src/terminal.js && node --check ./src/planner.js && node --check ./src/orchestrator.js && node --check ./src/session.js && node --check ./src/upgrade.js",
-    "test": "node --test",
-    "verify": "npm run check && npm test"
+    "check": "node --check ./bin/strategos.js && node --check ./scripts/install-hooks.js && node --check ./src/cli.js && node --check ./src/attachments.js && node --check ./src/capacity.js && node --check ./src/console.js && node --check ./src/terminal.js && node --check ./src/planner.js && node --check ./src/orchestrator.js && node --check ./src/session.js && node --check ./src/upgrade.js && node --check ./src/web-server.js",
+    "test": "node --test ./test/*.test.js",
+    "verify": "npm run check && npm test && npm run web:check && npm run web:test && npm run web:build"
   },
   "engines": {
     "node": ">=24"

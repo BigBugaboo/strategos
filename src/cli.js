@@ -10,6 +10,7 @@ import { findRepoRoot } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { formatUpgradeResult, upgradeStrategos } from "./upgrade.js";
 import { parsePositiveInteger } from "./utils.js";
+import { startWebServer } from "./web-server.js";
 
 const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
 const VERSION = JSON.parse(readFileSync(packagePath, "utf8")).version;
@@ -21,6 +22,7 @@ Usage:
   strategos
   strategos init [path]
   strategos doctor [--json]
+  strategos web [--host HOST] [--port PORT]
   strategos upgrade [--dry-run]
   strategos run <plan.json> [--dry-run] [--max-parallel N]
   strategos status [run-id] [--json]
@@ -115,6 +117,17 @@ export async function main(args) {
     if (hasFlag(args, "--json")) console.log(JSON.stringify(checks, null, 2));
     else printDoctor(checks);
     if (checks.some((check) => !check.ok)) process.exitCode = 2;
+    return;
+  }
+
+  if (command === "web") {
+    const root = await findRepoRoot(process.cwd());
+    const host = optionValue(args, "--host") || "127.0.0.1";
+    const portValue = optionValue(args, "--port");
+    const port = portValue === undefined ? 4310 : Number(portValue);
+    const result = await startWebServer({ root, host, port, version: VERSION });
+    console.log(`Strategos Web is running at ${result.url}`);
+    console.log("Press Ctrl+C to stop.");
     return;
   }
 

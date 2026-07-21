@@ -21,10 +21,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1
         with:
-          node-version-file: .node-version
-          cache: npm
+          node-version: "24"
+          cache: true
 
       - name: Read release version
         id: version
@@ -50,6 +50,11 @@ jobs:
       - name: Install dependencies
         if: steps.version.outputs.exists != 'true'
         run: npm ci --ignore-scripts
+
+      - name: Install Web dependencies
+        if: steps.version.outputs.exists != 'true'
+        run: vp install --frozen-lockfile
+        working-directory: web
 
       - name: Verify release candidate
         if: steps.version.outputs.exists != 'true'
