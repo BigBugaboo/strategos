@@ -92,7 +92,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.8.0
+STRATEGOS v0.9.0
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -124,9 +124,13 @@ goal when you want the console to stop for review and wait for `/run`. Press
 `Ctrl+C` once during planning to show an interruption warning, then press it
 again within three seconds to cancel the strategist call. Press it while idle
 to exit the console. Interrupted or failed work remains in a local session
-journal. The next launch offers `/resume`, which asks the strategist to inspect
-the current repository with the saved goal, plan, task progress, and error
-before producing only the remaining work. Useful console commands include:
+journal. The next launch offers `/resume`. In an interactive terminal, it opens
+a Claude Code-style picker: use the arrow keys to review session titles and
+descriptions, then press Enter to continue or Esc to return. The strategist
+receives the selected session's saved goal, plan, task progress, and error and
+inspects the current repository before producing only the remaining work.
+`/resume <id>` remains available for scripts and direct selection. Useful
+console commands include:
 
 ```text
 /new [goal]   /mode [auto|manual]  /strategist [agent]  /plan

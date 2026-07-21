@@ -22,6 +22,14 @@ function captureOutput() {
   return { output, read: () => text };
 }
 
+async function waitForOutput(read, pattern) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (pattern.test(stripAnsi(read()))) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`timed out waiting for output: ${pattern}`);
+}
+
 function memorySessionStore(initial = []) {
   let sequence = initial.length;
   const sessions = new Map(initial.map((session) => [session.id, { ...session }]));
@@ -72,7 +80,7 @@ function memorySessionStore(initial = []) {
 function consoleOptions(input, output, overrides = {}) {
   return {
     root: "/tmp/example-repository",
-    version: "0.8.0-test",
+    version: "0.9.0-test",
     input: typeof input === "string" ? Readable.from([input]) : input,
     output,
     loadConfigFn: async () => ({ ...DEFAULT_CONFIG, executionMode: "manual" }),
@@ -296,6 +304,140 @@ test("failed planning can be resumed with durable AI context", async () => {
   assert.equal((await sessionStore.load(failed.id)).status, "planned");
 });
 
+test("interactive resume opens a selector and continues the chosen session", async () => {
+  const sessionStore = memorySessionStore([
+    {
+      id: "session-1",
+      goal: "Older recovery",
+      strategist: "claude",
+      status: "failed",
+      attempts: 1,
+      updatedAt: "2026-07-21T08:00:00.000Z",
+      events: [],
+      error: "first failure",
+    },
+    {
+      id: "session-2",
+      goal: "Selected recovery",
+      strategist: "codex",
+      status: "interrupted",
+      attempts: 1,
+      updatedAt: "2026-07-21T09:00:00.000Z",
+      events: [],
+      error: "cancelled while planning",
+    },
+  ]);
+  const input = Readable.from(["/resume\n/exit\n"]);
+  const captured = captureOutput();
+  input.isTTY = true;
+  captured.output.isTTY = true;
+  let offeredSessions;
+  let planningInput;
+
+  await startConsole(
+    consoleOptions(input, captured.output, {
+      sessionStore,
+      selectResumeSessionFn: async ({ sessions }) => {
+        offeredSessions = sessions;
+        return sessions.find((session) => session.id === "session-2");
+      },
+      planWithStrategistFn: async (value) => {
+        planningInput = value;
+        return {
+          version: 1,
+          goal: value.goal,
+          context: [],
+          tasks: [
+            {
+              id: "recovery",
+              agent: "codex",
+              mode: "write",
+              prompt: "Continue the selected recovery.",
+              dependsOn: [],
+            },
+          ],
+        };
+      },
+    }),
+  );
+
+  assert.deepEqual(offeredSessions.map((session) => session.id), ["session-2", "session-1"]);
+  assert.equal(planningInput.goal, "Selected recovery");
+  assert.match(planningInput.resumeContext, /cancelled while planning/);
+  assert.match(captured.read(), /Resuming.*session-2 from interrupted/s);
+});
+
+test("resume selector cooperates with the active console readline interface", async () => {
+  const sessionStore = memorySessionStore([
+    {
+      id: "session-1",
+      goal: "Choose this session",
+      strategist: "codex",
+      status: "failed",
+      attempts: 1,
+      updatedAt: "2026-07-21T08:00:00.000Z",
+      events: [],
+      error: "network unavailable",
+    },
+    {
+      id: "session-2",
+      goal: "Initially highlighted session",
+      strategist: "codex",
+      status: "interrupted",
+      attempts: 1,
+      updatedAt: "2026-07-21T09:00:00.000Z",
+      events: [],
+      error: "planning cancelled",
+    },
+  ]);
+  const input = new PassThrough();
+  const captured = captureOutput();
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (value) => {
+    input.isRaw = value;
+  };
+  captured.output.isTTY = true;
+  captured.output.columns = 80;
+  let planningInput;
+
+  const running = startConsole(
+    consoleOptions(input, captured.output, {
+      sessionStore,
+      env: { TERM: "xterm" },
+      planWithStrategistFn: async (value) => {
+        planningInput = value;
+        return {
+          version: 1,
+          goal: value.goal,
+          context: [],
+          tasks: [
+            {
+              id: "recovery",
+              agent: "codex",
+              mode: "write",
+              prompt: "Continue recovery.",
+              dependsOn: [],
+            },
+          ],
+        };
+      },
+    }),
+  );
+  await waitForOutput(captured.read, /What are we building/);
+  input.write("/resume\n");
+  await waitForOutput(captured.read, /Resume a session/);
+  input.write("\u001b[B");
+  input.write("\r");
+  await waitForOutput(captured.read, /Resuming.*session-1 from failed/s);
+  input.end("/exit\n");
+  await running;
+
+  assert.equal(planningInput.goal, "Choose this session");
+  assert.match(planningInput.resumeContext, /network unavailable/);
+  assert.equal(input.isRaw, false);
+});
+
 test("a new goal abandons the previously offered recovery session", async () => {
   const sessionStore = memorySessionStore([
     {
@@ -409,7 +551,7 @@ test("interactive console renders compact startup chrome", async () => {
   const output = captured.read();
   const plain = stripAnsi(output);
   assert.match(output, /\u001b\[/);
-  assert.match(plain, /STRATEGOS v0\.8\.0-test/);
+  assert.match(plain, /STRATEGOS v0\.9\.0-test/);
   assert.match(plain, /Agents\s+● claude\s+·\s+● codex\s+·\s+● copilot/);
   assert.match(plain, /\/help commands\s+·\s+\/mode manual\s+·\s+\/run after review/);
   assert.doesNotMatch(plain, /Claude Code test/);

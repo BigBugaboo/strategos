@@ -8,7 +8,13 @@ import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { buildWaves, validatePlan } from "./plan.js";
 import { buildResumeContext, createSessionStore } from "./session.js";
-import { createTerminalUi, renderInputChrome, renderWelcome } from "./terminal.js";
+import {
+  createTerminalUi,
+  formatResumeSession,
+  renderInputChrome,
+  renderWelcome,
+  selectResumeSession,
+} from "./terminal.js";
 import { ensureDir, writeJson } from "./utils.js";
 
 const DEFAULT_CONTEXT_PATHS = Object.freeze([
@@ -167,6 +173,7 @@ export async function startConsole(options) {
   const loadRunFn = options.loadRunFn || loadRun;
   const initializeProjectFn = options.initializeProjectFn || initializeProject;
   const sessionStore = options.sessionStore || createSessionStore(root);
+  const selectResumeSessionFn = options.selectResumeSessionFn || selectResumeSession;
   const interactive = Boolean(input.isTTY && output.isTTY);
   const ui = createTerminalUi({
     interactive,
@@ -537,15 +544,24 @@ export async function startConsole(options) {
       }
       writeLine(output, ui.bold("Recent sessions"));
       sessions.forEach((session) => {
-        const goal = String(session.goal || "").replace(/\s+/g, " ").slice(0, 60);
-        writeLine(output, `${session.id}  ${session.status.padEnd(11)}  ${goal}`);
+        const item = formatResumeSession(ui, session);
+        writeLine(output, `${session.id}  ${item.title}`);
+        writeLine(output, `  ${ui.muted(item.description)}`);
       });
       return;
     }
     if (name === "resume") {
-      const session = argument
-        ? await sessionStore.load(argument)
-        : await sessionStore.latestResumable();
+      let session;
+      if (argument) {
+        session = await sessionStore.load(argument);
+      } else if (interactive) {
+        const sessions = await sessionStore.list({ resumableOnly: true, limit: 10 });
+        if (!sessions.length) throw new Error("no resumable session found");
+        session = await selectResumeSessionFn({ sessions, input, output, ui });
+        if (!session) return;
+      } else {
+        session = await sessionStore.latestResumable();
+      }
       if (!session) throw new Error(argument ? `session not found: ${argument}` : "no resumable session found");
       if (session.status === "succeeded") throw new Error(`session is already complete: ${session.id}`);
       if (availableAgents().includes(session.strategist)) {

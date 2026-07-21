@@ -91,7 +91,11 @@ the user explicitly resumes a session.
 
 At startup, the console identifies the newest planning, planned, previewed,
 running, failed, or interrupted session and displays a recovery hint. Use
-`/resume` for that session or `/resume <id>` for one shown by `/sessions`.
+`/resume` to open the interactive session picker. Each choice shows a title and
+a description containing status, age, strategist, task progress, and the last
+error when available. Use Up/Down to move, Enter to resume, or Esc to return to
+the console. `/resume <id>` skips the picker and remains suitable for scripts or
+for a session shown by `/sessions`.
 Strategos invokes the selected strategist again in read-only mode with the
 saved context and current repository. The recovery prompt requires it to
 account for completed work and produce only remaining tasks and verification.
@@ -116,7 +120,7 @@ sessions also remain inspectable but are never offered for recovery.
 | `/run` | Execute the current plan explicitly. Primarily used in manual mode or after `/load`. |
 | `/status [id]` | Show a specific run, or the latest run when no ID is provided. |
 | `/sessions` | List the ten most recent durable sessions, including completed and abandoned sessions. |
-| `/resume [id]` | Re-plan and continue the latest resumable session, or a selected session ID. |
+| `/resume [id]` | Choose a resumable session interactively, or re-plan a specific session ID directly. |
 | `/agents` | Re-run environment and agent CLI health checks. |
 | `/context` | List the shared context files currently present. |
 | `/init` | Initialize Strategos without overwriting existing files. |
