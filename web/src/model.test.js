@@ -20,9 +20,9 @@ describe("capacity presentation", () => {
 
 describe("real session presentation", () => {
   it("formats history dates relative to the current day", () => {
-    const now = new Date("2026-07-21T12:00:00+08:00");
-    expect(historyDate("2026-07-21T10:24:00+08:00", now)).toMatch(/10:24/);
-    expect(historyDate("2026-07-20T23:59:00+08:00", now)).toBe("Yesterday");
+    const now = new Date(2026, 6, 21, 12);
+    expect(historyDate(new Date(2026, 6, 21, 10, 24), now)).toMatch(/10:24/);
+    expect(historyDate(new Date(2026, 6, 20, 23, 59), now)).toBe("Yesterday");
   });
 
   it("derives active tasks and changed files from persisted and live events", () => {
