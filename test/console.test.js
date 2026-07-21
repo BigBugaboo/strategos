@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { PassThrough, Readable } from "node:stream";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { startConsole } from "../src/console.js";
+import { stripAnsi } from "../src/terminal.js";
 
 const healthyChecks = [
   { name: "git", ok: true, detail: "git version test" },
@@ -24,8 +25,8 @@ function captureOutput() {
 function consoleOptions(input, output, overrides = {}) {
   return {
     root: "/tmp/example-repository",
-    version: "0.4.0-test",
-    input: Readable.from([input]),
+    version: "0.5.0-test",
+    input: typeof input === "string" ? Readable.from([input]) : input,
     output,
     loadConfigFn: async () => DEFAULT_CONFIG,
     runDoctorFn: async () => healthyChecks,
@@ -92,8 +93,8 @@ test("ordinary console input proposes a plan and previews its waves", async () =
   assert.equal(planningInput.strategist, "codex");
   assert.deepEqual(planningInput.workerAgents, ["claude", "copilot"]);
   assert.match(output, /What do you want to accomplish/);
-  assert.match(output, /Asking codex to plan in read-only mode/);
-  assert.match(output, /Proposed by codex/);
+  assert.match(output, /Planning  codex is reading the repository/);
+  assert.match(output, /Plan ready  proposed by codex/);
   assert.match(output, /Max parallel: 3/);
 });
 
@@ -123,7 +124,7 @@ test("strategist can be changed for the current console session", async () => {
   );
   assert.equal(planningInput.strategist, "claude");
   assert.deepEqual(planningInput.workerAgents, ["codex", "copilot"]);
-  assert.match(captured.read(), /Strategist: claude/);
+  assert.match(captured.read(), /Strategist changed  claude/);
 });
 
 test("run command renders live orchestration events", async () => {
@@ -161,5 +162,45 @@ test("run command renders live orchestration events", async () => {
   assert.match(output, /Run run-test started/);
   assert.match(output, /implementation  claude  running/);
   assert.match(output, /Run finished: succeeded/);
-  assert.match(output, /branch: strategos\/run-test\/implementation/);
+  assert.match(output, /branch strategos\/run-test\/implementation/);
+});
+
+test("interactive console renders compact startup chrome", async () => {
+  const captured = captureOutput();
+  const options = consoleOptions("/exit\n", captured.output, {
+    env: { TERM: "xterm-256color" },
+  });
+  options.input.isTTY = true;
+  captured.output.isTTY = true;
+  captured.output.columns = 72;
+
+  await startConsole(options);
+  const output = captured.read();
+  const plain = stripAnsi(output);
+  assert.match(output, /\u001b\[/);
+  assert.match(plain, /STRATEGOS v0\.5\.0-test/);
+  assert.match(plain, /Agents\s+● claude\s+·\s+● codex\s+·\s+● copilot/);
+  assert.match(plain, /\/help commands\s+·\s+\/strategist codex planner/);
+  assert.doesNotMatch(plain, /Claude Code test/);
+});
+
+test("interactive console restores the prompt after an empty line", async () => {
+  const input = new PassThrough();
+  const captured = captureOutput();
+  const options = consoleOptions(input, captured.output, {
+    env: { TERM: "xterm-256color" },
+  });
+  input.isTTY = true;
+  captured.output.isTTY = true;
+  captured.output.columns = 72;
+
+  const session = startConsole(options);
+  await new Promise((resolve) => setImmediate(resolve));
+  input.write("\n");
+  await new Promise((resolve) => setImmediate(resolve));
+  input.end("/exit\n");
+  await session;
+
+  const output = stripAnsi(captured.read());
+  assert.equal(output.split("─".repeat(72)).length - 1, 2);
 });

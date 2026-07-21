@@ -1,6 +1,6 @@
 {
   "name": "strategos-cli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Local-first orchestration for Claude Code, Codex CLI, and GitHub Copilot CLI.",
   "type": "module",
   "bin": {
@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node ./bin/strategos.js",
     "doctor": "node ./bin/strategos.js doctor",
-    "check": "node --check ./bin/strategos.js && node --check ./src/cli.js && node --check ./src/console.js && node --check ./src/planner.js && node --check ./src/orchestrator.js && node --check ./src/upgrade.js",
+    "check": "node --check ./bin/strategos.js && node --check ./src/cli.js && node --check ./src/console.js && node --check ./src/terminal.js && node --check ./src/planner.js && node --check ./src/orchestrator.js && node --check ./src/upgrade.js",
     "test": "node --test",
     "verify": "npm run check && npm test"
   },
