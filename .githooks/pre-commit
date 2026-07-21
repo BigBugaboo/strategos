@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+repository_root="$(git rev-parse --show-toplevel)"
+cd "$repository_root"
+
+echo "strategos: running pre-commit checks"
+npm run check
