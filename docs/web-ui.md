@@ -32,8 +32,9 @@ saved sessions opens in the empty New task state.
 The repository used to start `strategos web` is the initial project. Use the
 Projects section in the left sidebar to add or switch local paths. Projects and
 Sessions are sibling navigation sections, matching the task-oriented hierarchy
-of modern coding-agent clients; the header is reserved for product identity and
-global CLI capacity. Strategos resolves each path to its Git root, rejects paths
+of modern coding-agent clients. The header shows compact active-project context
+beside global CLI capacity; project switching remains in the left navigation.
+Strategos resolves each path to its Git root, rejects paths
 outside an accessible Git repository, and stores the local project list in
 `~/.strategos/projects.json`.
 
@@ -116,3 +117,17 @@ capacity:
    Resume, which sends the durable context back to the strategist.
 
 Worker branches are never merged or pushed automatically.
+
+## Web interaction model
+
+- A new task focuses the composer automatically. Press `Enter` to submit or
+  `Shift+Enter` to add a line.
+- Press `Command+K` on macOS or `Control+K` elsewhere to return to the chat and
+  focus the composer. Press `Command+,` or `Control+,` to open Settings.
+- Auto and Manual are explicit menu choices. Auto previews the generated plan
+  and starts workers; Manual waits for approval after preview.
+- Attached images appear above the prompt and can be removed before submission.
+- The right details panel appears only for a selected Session. It can be closed
+  and reopened without changing the selected Session.
+- Project and mode menus close with `Escape`; transient menus also close when
+  focus moves to another part of the interface.

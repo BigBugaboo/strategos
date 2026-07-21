@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight,
+  ArrowUp,
   CaretDown,
   CaretRight,
   CheckCircle,
   ClockCounterClockwise,
   FolderOpen,
   GearSix,
+  Info,
   Paperclip,
   Play,
   PlusSquare,
+  SidebarSimple,
   SlidersHorizontal,
   Sparkle,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
 import { historyDate, quotaLabel, sessionTaskState } from "./model.js";
 
@@ -85,6 +88,22 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
   const [projectPath, setProjectPath] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const section = useRef(null);
+
+  useEffect(() => {
+    if (!adding) return undefined;
+    const closePopover = (event) => {
+      if (event.key === "Escape") setAdding(false);
+      if (event.type === "pointerdown" && !section.current?.contains(event.target))
+        setAdding(false);
+    };
+    globalThis.addEventListener("keydown", closePopover);
+    globalThis.addEventListener("pointerdown", closePopover);
+    return () => {
+      globalThis.removeEventListener("keydown", closePopover);
+      globalThis.removeEventListener("pointerdown", closePopover);
+    };
+  }, [adding]);
 
   const addProject = async (event) => {
     event.preventDefault();
@@ -103,7 +122,7 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
   };
 
   return (
-    <section className="projects-panel">
+    <section ref={section} className="projects-panel">
       <div className="sidebar-section-heading">
         <h2>Projects</h2>
         <button
@@ -126,6 +145,7 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
             key={project.path}
             className={project.path === repository.path ? "selected" : ""}
             aria-pressed={project.path === repository.path}
+            aria-current={project.path === repository.path ? "true" : undefined}
             disabled={disabled}
             onClick={() => void onSelect(project.path).catch(() => {})}
             title={project.path}
@@ -166,7 +186,20 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
       </div>
       {adding && (
         <form className="project-popover" onSubmit={addProject}>
-          <label htmlFor="project-path">Local Git repository path</label>
+          <div className="popover-heading">
+            <span>
+              <strong>Open local project</strong>
+              <small>Add a Git repository to this workspace.</small>
+            </span>
+            <button
+              type="button"
+              aria-label="Close project picker"
+              onClick={() => setAdding(false)}
+            >
+              <X />
+            </button>
+          </div>
+          <label htmlFor="project-path">Repository path</label>
           <input
             id="project-path"
             autoFocus
@@ -216,12 +249,9 @@ function AgentQuota({ agent }) {
 function EmptyChat() {
   return (
     <div className="empty-chat">
-      <img src="/strategos-icon.png" alt="Strategos" />
-      <h2>What are we building?</h2>
-      <p>
-        Describe a goal. Strategos will plan it, preview the work, and coordinate your available
-        CLIs.
-      </p>
+      <img src="/strategos-icon.png" alt="" />
+      <h2>Start a task</h2>
+      <p>Describe a goal, attach visual context, or ask Strategos to inspect this project.</p>
     </div>
   );
 }
@@ -313,13 +343,15 @@ function SessionChat({ session, capacity, liveEvents }) {
   );
 }
 
-function RunsView({ sessions, onSelect }) {
+function RunsView({ sessions, repository, onSelect }) {
   return (
     <section className="center-page">
       <header>
-        <p className="eyebrow">Runs</p>
-        <h1>All sessions</h1>
-        <p>Plans and execution history saved in this repository.</p>
+        <p className="eyebrow">Activity</p>
+        <h1>Sessions</h1>
+        <p>
+          Plans and execution history for <strong>{repository.name}</strong>.
+        </p>
       </header>
       <div className="run-list">
         {sessions.length ? (
@@ -354,6 +386,10 @@ function SettingsView({ data, onSaved }) {
   const [capacity, setCapacity] = useState(() => data.capacity.map((agent) => ({ ...agent })));
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const dirty =
+    mode !== data.executionMode ||
+    strategist !== data.strategist ||
+    JSON.stringify(capacity) !== JSON.stringify(data.capacity);
   const save = async (event) => {
     event.preventDefault();
     const payload = {
@@ -388,9 +424,9 @@ function SettingsView({ data, onSaved }) {
   return (
     <section className="center-page settings-page">
       <header>
-        <p className="eyebrow">Settings</p>
+        <p className="eyebrow">Preferences</p>
         <h1>Orchestration</h1>
-        <p>Control the default flow and manually record provider quota.</p>
+        <p>Choose how Strategos plans work and which local CLIs are eligible.</p>
       </header>
       <form onSubmit={save}>
         <div className="settings-row">
@@ -482,7 +518,7 @@ function SettingsView({ data, onSaved }) {
           ))}
         </div>
         <div className="settings-actions">
-          <button type="submit" disabled={saving}>
+          <button type="submit" disabled={saving || !dirty}>
             {saving ? "Saving…" : "Save settings"}
           </button>
           <span role="status" aria-live="polite">
@@ -494,20 +530,31 @@ function SettingsView({ data, onSaved }) {
   );
 }
 
-function Inspector({ session, liveEvents, onRun, onResume }) {
+function Inspector({ session, liveEvents, onRun, onResume, onClose }) {
   const [logsOpen, setLogsOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
   const events = [...(session?.events || []), ...liveEvents].slice(-5);
   const { activeTasks, changedFiles: files } = sessionTaskState(session, liveEvents);
   if (!session)
     return (
-      <aside className="inspector inspector-empty">
+      <aside className="inspector inspector-empty" aria-label="Session details">
         <SlidersHorizontal />
-        <p>Select a session to inspect its plan and execution.</p>
+        <p>Select a session to inspect its plan, workers, and changed files.</p>
       </aside>
     );
   return (
-    <aside className="inspector">
+    <aside className="inspector" aria-label="Session details">
+      <div className="inspector-toolbar">
+        <span>Details</span>
+        <button
+          type="button"
+          aria-label="Close session details"
+          title="Close details"
+          onClick={onClose}
+        >
+          <X />
+        </button>
+      </div>
       <section className="inspector-section current-run">
         <div className="section-title">
           <h2>Current run</h2>
@@ -616,7 +663,11 @@ export function App() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [switchingProject, setSwitchingProject] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const fileInput = useRef(null);
+  const composerInput = useRef(null);
+  const modeControl = useRef(null);
   const bootstrapped = useRef(false);
   const selected = useMemo(
     () => data?.sessions.find((session) => session.id === selectedId) || null,
@@ -680,6 +731,7 @@ export function App() {
     try {
       await refresh(projectPath, true);
       setView("chat");
+      setModeMenuOpen(false);
       setDraft("");
       setAttachments([]);
     } catch (requestError) {
@@ -702,6 +754,7 @@ export function App() {
   const selectSession = (session) => {
     setSelectedId(session.id);
     setView("chat");
+    setModeMenuOpen(false);
     setLiveEvents([]);
   };
   const newTask = () => {
@@ -710,6 +763,8 @@ export function App() {
     setDraft("");
     setAttachments([]);
     setError("");
+    setModeMenuOpen(false);
+    globalThis.setTimeout(() => composerInput.current?.focus(), 0);
   };
   const send = async () => {
     const goal = draft.trim();
@@ -743,6 +798,7 @@ export function App() {
       setSelectedId(session.id);
       setDraft("");
       setAttachments([]);
+      setModeMenuOpen(false);
       if (fileInput.current) fileInput.current.value = "";
     } catch (requestError) {
       setError(requestError.message);
@@ -774,6 +830,41 @@ export function App() {
     }
   };
 
+  useEffect(() => {
+    const onShortcut = (event) => {
+      if (!(event.metaKey || event.ctrlKey)) {
+        if (event.key === "Escape") setModeMenuOpen(false);
+        return;
+      }
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setView("chat");
+        globalThis.setTimeout(() => composerInput.current?.focus(), 0);
+      }
+      if (event.key === ",") {
+        event.preventDefault();
+        setView("settings");
+        setModeMenuOpen(false);
+      }
+    };
+    globalThis.addEventListener("keydown", onShortcut);
+    return () => globalThis.removeEventListener("keydown", onShortcut);
+  }, []);
+
+  useEffect(() => {
+    if (!modeMenuOpen) return undefined;
+    const closeModeMenu = (event) => {
+      if (!modeControl.current?.contains(event.target)) setModeMenuOpen(false);
+    };
+    globalThis.addEventListener("pointerdown", closeModeMenu);
+    return () => globalThis.removeEventListener("pointerdown", closeModeMenu);
+  }, [modeMenuOpen]);
+
+  useEffect(() => {
+    if (data && view === "chat" && !selectedId)
+      globalThis.setTimeout(() => composerInput.current?.focus(), 0);
+  }, [data?.repository.path, selectedId, view]);
+
   if (!data)
     return (
       <div className="loading-screen">
@@ -787,15 +878,19 @@ export function App() {
       </div>
     );
   const exhausted = data.capacity.filter((agent) => agent.installed && !agent.eligible);
+  const showInspector = inspectorOpen && selected && view === "chat";
   return (
-    <div className={`app-shell ${exhausted.length ? "has-capacity-notice" : ""}`}>
+    <div
+      className={`app-shell ${exhausted.length ? "has-capacity-notice" : ""} ${showInspector ? "" : "inspector-closed"}`}
+    >
       <header className="topbar">
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
           <div>
-            <strong>Strategos</strong>
-            <span>v{data.version}</span>
+            <strong>{selected?.goal || data.repository.name}</strong>
+            <span title={data.repository.path}>{shortPath(data.repository.path)}</span>
           </div>
+          <small>v{data.version}</small>
         </div>
         <div className="quota-strip">
           {data.capacity.map((agent) => (
@@ -815,17 +910,35 @@ export function App() {
       <div className="workspace">
         <aside className="sidebar">
           <nav>
-            <button className={view === "chat" && !selected ? "active" : ""} onClick={newTask}>
+            <button
+              type="button"
+              className={view === "chat" && !selected ? "active" : ""}
+              aria-current={view === "chat" && !selected ? "page" : undefined}
+              onClick={newTask}
+            >
               <PlusSquare />
               New task
             </button>
-            <button className={view === "runs" ? "active" : ""} onClick={() => setView("runs")}>
+            <button
+              type="button"
+              className={view === "runs" ? "active" : ""}
+              aria-current={view === "runs" ? "page" : undefined}
+              onClick={() => {
+                setView("runs");
+                setModeMenuOpen(false);
+              }}
+            >
               <Play />
               Runs
             </button>
             <button
+              type="button"
               className={view === "settings" ? "active" : ""}
-              onClick={() => setView("settings")}
+              aria-current={view === "settings" ? "page" : undefined}
+              onClick={() => {
+                setView("settings");
+                setModeMenuOpen(false);
+              }}
             >
               <GearSix />
               Settings
@@ -844,6 +957,7 @@ export function App() {
               {data.sessions.length ? (
                 data.sessions.slice(0, 9).map((session) => (
                   <button
+                    type="button"
                     key={session.id}
                     className={selectedId === session.id && view === "chat" ? "selected" : ""}
                     onClick={() => selectSession(session)}
@@ -857,14 +971,36 @@ export function App() {
                 <p className="history-empty">No sessions yet.</p>
               )}
             </div>
-            <button className="view-all" onClick={() => setView("runs")}>
+            <button
+              type="button"
+              className="view-all"
+              onClick={() => {
+                setView("runs");
+                setModeMenuOpen(false);
+              }}
+            >
               View all sessions <CaretRight />
             </button>
           </div>
         </aside>
         <main className="main-panel">
+          {selected && view === "chat" && !showInspector && (
+            <button
+              type="button"
+              className="details-toggle"
+              aria-label="Open session details"
+              title="Open details"
+              onClick={() => setInspectorOpen(true)}
+            >
+              <SidebarSimple />
+            </button>
+          )}
           {view === "runs" ? (
-            <RunsView sessions={data.sessions} onSelect={selectSession} />
+            <RunsView
+              sessions={data.sessions}
+              repository={data.repository}
+              onSelect={selectSession}
+            />
           ) : view === "settings" ? (
             <SettingsView data={data} onSaved={setData} />
           ) : (
@@ -872,15 +1008,43 @@ export function App() {
           )}
           {view === "chat" && (
             <div className="composer-wrap">
-              <div className="composer">
+              <form
+                className="composer"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void send();
+                }}
+              >
+                {attachments.length > 0 && (
+                  <div className="attachment-list" aria-label="Attached images">
+                    {attachments.map((file, index) => (
+                      <span key={`${file.name}-${file.lastModified}`}>
+                        <Paperclip />
+                        <span>{file.name}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${file.name}`}
+                          onClick={() =>
+                            setAttachments((items) =>
+                              items.filter((_, itemIndex) => itemIndex !== index),
+                            )
+                          }
+                        >
+                          <X />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <textarea
+                  ref={composerInput}
                   rows="2"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
-                      void send();
+                      event.currentTarget.form?.requestSubmit();
                     }
                   }}
                   placeholder="Describe what you want to build or change…"
@@ -888,6 +1052,7 @@ export function App() {
                 <div className="composer-actions">
                   <div>
                     <button
+                      type="button"
                       className="icon-button"
                       title="Attach an image"
                       aria-label="Attach an image"
@@ -903,31 +1068,74 @@ export function App() {
                       multiple
                       onChange={(event) => setAttachments([...event.target.files])}
                     />
-                    <button
-                      className="mode-button"
-                      aria-label={`Execution mode: ${mode}`}
-                      aria-pressed={mode === "manual"}
-                      onClick={() => setMode((value) => (value === "auto" ? "manual" : "auto"))}
-                    >
-                      <Sparkle weight="fill" />
-                      {mode === "auto" ? "Auto" : "Manual"}
-                      <CaretDown />
-                    </button>
-                    {attachments.length > 0 && (
-                      <span className="attachment-count">
-                        {attachments.length} image{attachments.length > 1 ? "s" : ""}
-                      </span>
-                    )}
+                    <div ref={modeControl} className="mode-control">
+                      <button
+                        type="button"
+                        className="mode-button"
+                        aria-label={`Execution mode: ${mode}`}
+                        aria-haspopup="menu"
+                        aria-expanded={modeMenuOpen}
+                        onClick={() => setModeMenuOpen((value) => !value)}
+                      >
+                        <Sparkle weight="fill" />
+                        {mode === "auto" ? "Auto" : "Manual"}
+                        <CaretDown />
+                      </button>
+                      {modeMenuOpen && (
+                        <div className="mode-menu" role="menu" aria-label="Execution mode">
+                          <button
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={mode === "auto"}
+                            onClick={() => {
+                              setMode("auto");
+                              setModeMenuOpen(false);
+                            }}
+                          >
+                            <Sparkle weight="fill" />
+                            <span>
+                              <strong>Auto</strong>
+                              <small>Preview, then start workers.</small>
+                            </span>
+                            {mode === "auto" && <CheckCircle weight="fill" />}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={mode === "manual"}
+                            onClick={() => {
+                              setMode("manual");
+                              setModeMenuOpen(false);
+                            }}
+                          >
+                            <Info />
+                            <span>
+                              <strong>Manual</strong>
+                              <small>Wait for approval after preview.</small>
+                            </span>
+                            {mode === "manual" && <CheckCircle weight="fill" />}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <button
+                    type="submit"
                     className="send-button"
-                    onClick={send}
                     disabled={!draft.trim() || submitting}
+                    aria-label={submitting ? "Creating session" : "Send task"}
                   >
-                    {submitting ? "Sending…" : "Send"} <ArrowRight />
+                    <span>{submitting ? "Creating…" : "Send"}</span>
+                    {submitting ? <ClockCounterClockwise /> : <ArrowUp weight="bold" />}
                   </button>
                 </div>
-              </div>
+                <div className="composer-hint">
+                  <span>{shortPath(data.repository.path)}</span>
+                  <span>
+                    <kbd>Enter</kbd> send · <kbd>Shift Enter</kbd> new line · <kbd>⌘ K</kbd> focus
+                  </span>
+                </div>
+              </form>
               {error && (
                 <div className="composer-error" role="alert">
                   {error}
@@ -936,12 +1144,15 @@ export function App() {
             </div>
           )}
         </main>
-        <Inspector
-          session={selected}
-          liveEvents={liveEvents}
-          onRun={runSelected}
-          onResume={resumeSelected}
-        />
+        {showInspector && (
+          <Inspector
+            session={selected}
+            liveEvents={liveEvents}
+            onRun={runSelected}
+            onResume={resumeSelected}
+            onClose={() => setInspectorOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
