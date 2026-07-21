@@ -168,3 +168,27 @@ test("Web server serves the built single-page application", async (t) => {
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Strategos Web/);
 });
+
+test("Web planning persists the headless strategist activity", async (t) => {
+  const { url } = await fixture(t);
+  const response = await fetch(`${url}/api/goals`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ goal: "Plan a visible CLI activity", executionMode: "manual" }),
+  });
+  assert.equal(response.status, 202);
+  const created = await response.json();
+  let session;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await fetch(`${url}/api/sessions/${created.id}`);
+    session = await current.json();
+    if (session.status === "planned") break;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.equal(session.status, "planned");
+  const planning = session.events.find((event) => event.type === "planning_started");
+  assert.equal(planning.strategist, "codex");
+  assert.deepEqual(planning.workerAgents, ["claude", "codex"]);
+  assert.match(planning.at, /^2026-/);
+});

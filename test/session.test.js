@@ -66,6 +66,33 @@ test("completed sessions remain inspectable but are not offered for recovery", a
   await assert.rejects(store.load("../outside"), /invalid session id/);
 });
 
+test("planning events retain the CLI identity and original timestamp", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "strategos-planning-event-"));
+  const store = createSessionStore("/tmp/example", {
+    directory,
+    idFactory: () => "planning-session",
+  });
+  let session = await store.create({
+    goal: "Plan the work",
+    strategist: "codex",
+    workerAgents: ["claude", "codex"],
+    executionMode: "auto",
+  });
+  session = await store.appendEvent(session, {
+    type: "planning_started",
+    strategist: "codex",
+    workerAgents: ["claude", "codex"],
+    at: "2026-07-21T10:41:53.000Z",
+  });
+
+  assert.deepEqual(session.events[0], {
+    type: "planning_started",
+    strategist: "codex",
+    workerAgents: ["claude", "codex"],
+    at: "2026-07-21T10:41:53.000Z",
+  });
+});
+
 test("resume context carries the prior plan, progress, and failure", () => {
   const context = buildResumeContext({
     id: "session-context",

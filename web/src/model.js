@@ -47,3 +47,45 @@ export function sessionTaskState(session, liveEvents = []) {
     changedFiles: [...new Set(values.flatMap((task) => task.changedFiles || []))],
   };
 }
+
+export function sessionActivityState(session, liveEvents = [], isActive = false) {
+  const taskState = sessionTaskState(session, liveEvents);
+  const activities = taskState.activeTasks.map((task) => ({
+    id: task.id,
+    agent: task.agent,
+    label: task.id,
+    phase: task.status,
+    kind: "worker",
+  }));
+  if (session?.status === "planning" && isActive) {
+    activities.unshift({
+      id: "strategist-planning",
+      agent: session.strategist,
+      label: "Planning task graph",
+      phase: "planning",
+      kind: "strategist",
+    });
+  }
+  return {
+    ...taskState,
+    activities,
+    detached: Boolean(session?.status === "planning" && !isActive),
+  };
+}
+
+function eventKey(event) {
+  return [
+    event.type,
+    event.at,
+    event.runId,
+    event.strategist,
+    event.task?.id,
+    event.task?.status,
+  ].join("|");
+}
+
+export function mergeSessionEvents(sessionEvents = [], liveEvents = []) {
+  const events = new Map();
+  for (const event of [...sessionEvents, ...liveEvents]) events.set(eventKey(event), event);
+  return [...events.values()];
+}

@@ -48,9 +48,11 @@ async function writeAtomicJson(file, value) {
 }
 
 function compactEvent(event, at) {
-  const saved = { type: event.type, at };
+  const saved = { type: event.type, at: event.at || at };
   if (event.runId) saved.runId = event.runId;
   if (event.goal) saved.goal = event.goal;
+  if (event.strategist) saved.strategist = event.strategist;
+  if (event.workerAgents) saved.workerAgents = event.workerAgents;
   if (event.manifest) saved.runStatus = event.manifest.status;
   if (event.task) {
     saved.task = {

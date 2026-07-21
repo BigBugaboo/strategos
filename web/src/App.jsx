@@ -17,7 +17,7 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
-import { historyDate, quotaLabel, sessionTaskState } from "./model.js";
+import { historyDate, mergeSessionEvents, quotaLabel, sessionActivityState } from "./model.js";
 
 const AGENT_COLORS = { claude: "#39d5df", codex: "#9b5cff", copilot: "#a3aab6" };
 const PROJECT_STORAGE_KEY = "strategos.selectedProject";
@@ -530,11 +530,15 @@ function SettingsView({ data, onSaved }) {
   );
 }
 
-function Inspector({ session, liveEvents, onRun, onResume, onClose }) {
+function Inspector({ session, liveEvents, isActive, onRun, onResume, onClose }) {
   const [logsOpen, setLogsOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
-  const events = [...(session?.events || []), ...liveEvents].slice(-5);
-  const { activeTasks, changedFiles: files } = sessionTaskState(session, liveEvents);
+  const events = mergeSessionEvents(session?.events, liveEvents).slice(-5);
+  const {
+    activities,
+    changedFiles: files,
+    detached,
+  } = sessionActivityState(session, liveEvents, isActive);
   if (!session)
     return (
       <aside className="inspector inspector-empty" aria-label="Session details">
@@ -557,23 +561,35 @@ function Inspector({ session, liveEvents, onRun, onResume, onClose }) {
       </div>
       <section className="inspector-section current-run">
         <div className="section-title">
-          <h2>Current run</h2>
+          <h2>Current activity</h2>
           <span>
             <i />
-            {activeTasks.length} active
+            {activities.length} active
           </span>
         </div>
-        {activeTasks.map((task) => (
-          <div className="active-task" key={`${task.agent}-${task.id}`}>
-            <span className="agent-dot" style={{ background: AGENT_COLORS[task.agent] }} />
-            <strong>{task.agent}</strong>
-            <span>{task.id}</span>
+        {activities.map((activity) => (
+          <div className="active-task" key={`${activity.agent}-${activity.id}`}>
+            <span
+              className="agent-dot activity-pulse"
+              style={{ background: AGENT_COLORS[activity.agent] }}
+            />
+            <strong>{activity.agent}</strong>
+            <span>{activity.label}</span>
             <time>{clock(session.updatedAt)}</time>
           </div>
         ))}
-        {!activeTasks.length && (
+        {activities.length > 0 && (
+          <p className="headless-note">
+            The CLI is running in the background. No separate terminal window will open.
+          </p>
+        )}
+        {!activities.length && (
           <p className="quiet">
-            {session.status === "running" ? "Waiting for worker updates…" : "No active workers."}
+            {detached
+              ? "The planner is no longer attached. Resume this session to continue."
+              : session.status === "running"
+                ? "Waiting for worker updates…"
+                : "No active CLI processes."}
           </p>
         )}
       </section>
@@ -606,7 +622,7 @@ function Inspector({ session, liveEvents, onRun, onResume, onClose }) {
               <Play weight="fill" /> Run plan
             </button>
           )}
-          {["failed", "interrupted"].includes(session.status) && (
+          {(["failed", "interrupted"].includes(session.status) || detached) && (
             <button onClick={onResume}>
               <ClockCounterClockwise /> Resume
             </button>
@@ -712,7 +728,7 @@ export function App() {
       const parsed = JSON.parse(event.data);
       if (parsed.type !== "connected")
         setLiveEvents((items) =>
-          [...items, { ...parsed, at: new Date().toISOString() }].slice(-20),
+          [...items, { at: new Date().toISOString(), ...parsed }].slice(-20),
         );
       if (["plan_ready", "session_complete", "session_error", "run_finished"].includes(parsed.type))
         refresh().catch(() => {});
@@ -794,6 +810,7 @@ export function App() {
       setData((current) => ({
         ...current,
         sessions: [session, ...current.sessions.filter((item) => item.id !== session.id)],
+        activeSessionIds: [...new Set([...(current.activeSessionIds || []), session.id])],
       }));
       setSelectedId(session.id);
       setDraft("");
@@ -1148,6 +1165,7 @@ export function App() {
           <Inspector
             session={selected}
             liveEvents={liveEvents}
+            isActive={data.activeSessionIds?.includes(selected.id)}
             onRun={runSelected}
             onResume={resumeSelected}
             onClose={() => setInspectorOpen(false)}
