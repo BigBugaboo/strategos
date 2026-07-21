@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/strategos-icon.png" alt="Strategos 品牌图标" width="128" height="128" />
+</p>
+
 # Strategos（策略家）
 
 Strategos 是一个本地优先的多 AI 编程代理调度器，面向 Claude Code、

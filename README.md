@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/strategos-icon.png" alt="Strategos brand icon" width="128" height="128" />
+</p>
+
 # Strategos
 
 **A local-first strategist for Claude Code, Codex CLI, and GitHub Copilot CLI.**
