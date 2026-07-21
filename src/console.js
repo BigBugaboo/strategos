@@ -100,7 +100,7 @@ function consoleHelp(ui = createTerminalUi()) {
   /init           Initialize Strategos without overwriting existing files
   /clear          Clear the terminal
   /help           Show this help
-  /exit           Exit Strategos
+  /exit           Exit Strategos (Ctrl+C also exits when idle)
 
 ${ui.muted("Enter ordinary text to ask the strategist CLI to create a task graph.")}`;
 }
@@ -214,8 +214,9 @@ export async function startConsole(options) {
         planningController.abort();
         return;
       }
-      writeLine(output, `\n${ui.muted("Use /exit to leave Strategos.")}`);
-      promptUser();
+      shouldExit = true;
+      writeLine(output, `\n${ui.muted("Goodbye.")}`);
+      rl.close();
     });
     promptUser();
   }

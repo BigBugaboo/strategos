@@ -46,7 +46,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.6.0
+STRATEGOS v0.6.1
 Multi-agent strategy console · codex plans
 ~/你的/项目目录
 
@@ -69,8 +69,8 @@ Flow  1 implementation  →  2 review
 检查仓库并返回 JSON 任务图。默认 `hybrid` 模式会在规划结束后把 strategist
 也加入健康 Worker 池，因此 Claude、Codex、Copilot 都可以接收执行任务。
 Strategos 自身不接入模型 SDK、模型 API 或额外密钥；它只负责校验和展示计划。
-只有明确输入 `/run` 后，才会创建 worker worktree 并执行任务。规划太慢时可以
-按 `Ctrl+C` 取消当前 strategist 调用。常用命令：
+只有明确输入 `/run` 后，才会创建 worker worktree 并执行任务。规划过程中按
+`Ctrl+C` 会取消当前 strategist 调用；空闲时按 `Ctrl+C` 会退出指令台。常用命令：
 
 ```text
 /new [目标]   /strategist [agent]  /plan       /load <文件>
