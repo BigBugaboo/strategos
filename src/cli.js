@@ -29,12 +29,14 @@ Interactive mode:
   Run strategos without a subcommand. A selected agent CLI plans in read-only
   mode. Auto mode previews and runs the plan; use /mode manual to pause before
   worker execution. Interrupted work is journaled locally; use /resume in the
-  console to continue with the saved context.
+  console to continue with the saved context. Use /attach <path> to add image
+  context before a goal.
 
 Core model:
   Strategos has no model API. One installed CLI produces a JSON task graph for
   the available installed CLIs through the local adapter and authentication boundary.
   Every runnable task gets an isolated Git worktree and a durable report.
+  With one healthy CLI, independent tasks run as separate parallel sessions.
   Strategos does not merge or push generated branches automatically.
 `;
 }
@@ -71,6 +73,7 @@ function printRun(manifest) {
   for (const task of Object.values(manifest.tasks)) {
     const suffix = task.error ? ` — ${task.error}` : "";
     console.log(`${task.id}: ${task.status} (${task.agent})${suffix}`);
+    if (task.sessionId) console.log(`  session: ${task.sessionId}`);
     if (task.branch) console.log(`  branch: ${task.branch}`);
     if (task.worktree) console.log(`  worktree: ${task.worktree}`);
   }

@@ -21,15 +21,22 @@ test("runs independent custom workers in isolated worktrees and preserves report
   await fs.writeFile(path.join(root, "AGENTS.md"), "Test project\n", "utf8");
   await fs.mkdir(path.join(root, ".strategos"));
   await fs.writeFile(path.join(root, ".strategos", "context.md"), "Shared context\n", "utf8");
-  await fs.writeFile(path.join(root, ".gitignore"), ".strategos/runs/\n", "utf8");
+  await fs.writeFile(path.join(root, ".gitignore"), ".strategos/runs/\n.strategos/attachments/\n", "utf8");
   git(root, "add", ".");
   git(root, "commit", "-m", "initial");
+  const attachmentPath = path.join(root, ".strategos", "attachments", "design.png");
+  await fs.mkdir(path.dirname(attachmentPath), { recursive: true });
+  await fs.writeFile(
+    attachmentPath,
+    Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"),
+  );
 
   const script = [
     "const fs=require('node:fs');",
     "const id=process.env.STRATEGOS_TASK_ID;",
+    "const images=fs.readdirSync('.strategos/attachments');",
     "fs.writeFileSync(id+'.txt','done\\n');",
-    "console.log('completed '+id);",
+    "console.log('completed '+id+' session '+process.env.STRATEGOS_SESSION_ID+' image '+images[0]);",
   ].join("");
   const config = {
     ...DEFAULT_CONFIG,
@@ -38,24 +45,30 @@ test("runs independent custom workers in isolated worktrees and preserves report
     taskTimeoutMinutes: 1,
     agents: {
       worker: { command: process.execPath, args: ["-e", script, "{{prompt}}"] },
-      reviewer: { command: process.execPath, args: ["-e", "console.log('review complete')"] },
     },
   };
   const planInput = {
     version: 1,
     goal: "integration test",
+    attachments: [".strategos/attachments/design.png"],
     tasks: [
       { id: "one", agent: "worker", prompt: "one", dependsOn: [] },
       { id: "two", agent: "worker", prompt: "two", dependsOn: [] },
-      { id: "review", agent: "reviewer", mode: "read-only", prompt: "review", dependsOn: ["one", "two"] },
+      { id: "review", agent: "worker", mode: "read-only", prompt: "review", dependsOn: ["one", "two"] },
     ],
   };
 
   const events = [];
+  const sessionIds = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+  ];
   const result = await runPlan({
     root,
     config,
     planInput,
+    sessionIdFactory: () => sessionIds.shift(),
     onEvent: async (event) => {
       await Promise.resolve();
       events.push(event);
@@ -66,9 +79,12 @@ test("runs independent custom workers in isolated worktrees and preserves report
   assert.equal(result.manifest.tasks.two.status, "succeeded");
   assert.ok(result.manifest.tasks.one.changedFiles.includes("one.txt"));
   assert.notEqual(result.manifest.tasks.one.worktree, result.manifest.tasks.two.worktree);
+  assert.equal(result.manifest.sessionMode, "single-cli-multi-session");
+  assert.notEqual(result.manifest.tasks.one.sessionId, result.manifest.tasks.two.sessionId);
+  assert.equal(result.manifest.tasks.one.attachments[0].relativePath, ".strategos/attachments/design.png");
   assert.match(
     await fs.readFile(path.join(root, result.manifest.tasks.one.artifactDir, "report.md"), "utf8"),
-    /completed one/,
+    /completed one session 11111111-1111-4111-8111-111111111111 image design\.png/,
   );
   assert.equal(events[0].type, "run_started");
   assert.equal(events.at(-1).type, "run_finished");

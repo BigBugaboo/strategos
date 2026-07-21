@@ -154,6 +154,56 @@ test("ordinary console input proposes a plan and previews its waves", async () =
   assert.match(output, /Max parallel: 3/);
 });
 
+test("attaches image context to planning, plans, and durable sessions", async () => {
+  const captured = captureOutput();
+  const sessionStore = memorySessionStore();
+  let planningInput;
+  const attachment = {
+    id: "image-1",
+    name: "design.png",
+    mimeType: "image/png",
+    size: 128,
+    sha256: "abc",
+    relativePath: ".strategos/attachments/image-1-design.png",
+    path: "/tmp/example-repository/.strategos/attachments/image-1-design.png",
+  };
+
+  await startConsole(
+    consoleOptions(
+      "/attach /tmp/design.png\nImplement the attached design\n/attachments\n/exit\n",
+      captured.output,
+      {
+        sessionStore,
+        attachImageFn: async () => attachment,
+        resolveAttachmentsFn: async (_root, attachments) =>
+          attachments.length ? [{ ...attachment, ...attachments[0] }] : [],
+        planWithStrategistFn: async (input) => {
+          planningInput = input;
+          return {
+            version: 1,
+            goal: input.goal,
+            context: [],
+            tasks: [{
+              id: "implementation",
+              agent: "codex",
+              mode: "write",
+              prompt: "Implement the design.",
+              dependsOn: [],
+            }],
+          };
+        },
+      },
+    ),
+  );
+
+  assert.equal(planningInput.attachments[0].path, attachment.path);
+  const saved = (await sessionStore.list())[0];
+  assert.equal(saved.attachments[0].relativePath, attachment.relativePath);
+  assert.deepEqual(saved.plan.attachments, [attachment.relativePath]);
+  assert.match(captured.read(), /Attached  design\.png/);
+  assert.match(captured.read(), /Image attachments/);
+});
+
 test("strategist can be changed for the current console session", async () => {
   const captured = captureOutput();
   let planningInput;
@@ -258,10 +308,22 @@ test("auto mode never executes when preview fails", async () => {
 
 test("failed planning can be resumed with durable AI context", async () => {
   const sessionStore = memorySessionStore();
+  const attachment = {
+    id: "resume-image",
+    name: "network.png",
+    mimeType: "image/png",
+    size: 64,
+    relativePath: ".strategos/attachments/resume-image-network.png",
+    path: "/tmp/example-repository/.strategos/attachments/resume-image-network.png",
+  };
+  const resolveAttachmentsFn = async (_root, attachments) =>
+    attachments.length ? [{ ...attachment, ...attachments[0], path: attachment.path }] : [];
   const firstOutput = captureOutput();
   await startConsole(
-    consoleOptions("Ship the release\n/exit\n", firstOutput.output, {
+    consoleOptions("/attach /tmp/network.png\nShip the release\n/exit\n", firstOutput.output, {
       sessionStore,
+      attachImageFn: async () => attachment,
+      resolveAttachmentsFn,
       planWithStrategistFn: async () => {
         throw new Error("codex planning failed: network unavailable");
       },
@@ -277,6 +339,7 @@ test("failed planning can be resumed with durable AI context", async () => {
   await startConsole(
     consoleOptions("/resume\n/exit\n", secondOutput.output, {
       sessionStore,
+      resolveAttachmentsFn,
       planWithStrategistFn: async (input) => {
         recoveredInput = input;
         return {
@@ -301,6 +364,8 @@ test("failed planning can be resumed with durable AI context", async () => {
   assert.match(secondOutput.read(), /Resuming.*from failed/s);
   assert.match(recoveredInput.resumeContext, /network unavailable/);
   assert.match(recoveredInput.resumeContext, /Ship the release/);
+  assert.match(recoveredInput.resumeContext, /resume-image-network\.png/);
+  assert.equal(recoveredInput.attachments[0].path, attachment.path);
   assert.equal((await sessionStore.load(failed.id)).status, "planned");
 });
 

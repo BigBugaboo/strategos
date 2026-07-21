@@ -7,6 +7,7 @@
 | `version` | yes | Must be `1`. |
 | `goal` | yes | Overall outcome shared with every worker. |
 | `context` | no | Repository-relative files shared with every task. |
+| `attachments` | no | Repository-relative image paths managed by Strategos and shared with every task. |
 | `tasks` | yes | One or more task objects. |
 
 ## Task fields

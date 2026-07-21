@@ -46,6 +46,20 @@ test("renders input guidance and respects terminal width", () => {
   assert.match(hints, /\/help commands\s+·\s+\/mode auto\s+·\s+preview → run/);
 });
 
+test("surfaces single-CLI parallel sessions and selected images", () => {
+  const ui = createTerminalUi({ interactive: false, columns: 80 });
+  const welcome = renderWelcome(ui, {
+    version: "0.10.0",
+    root: "/tmp/example-repository",
+    strategist: "codex",
+    checks: checks.map((check) =>
+      ["claude", "copilot"].includes(check.name) ? { ...check, ok: false } : check,
+    ),
+  });
+  assert.match(welcome, /Sessions parallel codex workers · isolated worktrees/);
+  assert.match(renderInputChrome(ui, "auto", 2), /2 images/);
+});
+
 test("disables styling when NO_COLOR is present", () => {
   const ui = createTerminalUi({
     interactive: true,
