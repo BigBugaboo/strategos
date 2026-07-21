@@ -83,7 +83,8 @@ capacity:
 - `Exhausted` CLIs are excluded from strategist fallback and worker assignment
   when `excludeExhausted` is enabled, which is the default.
 - `Unknown` CLIs stay eligible. Strategos never turns missing quota data into a
-  fabricated exact percentage.
+  fabricated exact percentage. Missing or unreadable capacity is normalized to
+  `Unknown`, even if a stale configuration previously marked the CLI available.
 - Capacity is a scheduling guard, not a billing meter. Provider dashboards
   remain the source of truth.
 

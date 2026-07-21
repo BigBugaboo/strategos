@@ -1,5 +1,6 @@
 export function quotaLabel(agent) {
   if (agent.state === "exhausted") return "No quota — off";
+  if (agent.state === "unknown") return "Unknown";
   if (agent.remainingPercent === null || agent.remainingPercent === undefined) return "Unknown";
   return `${agent.remainingPercent}% left`;
 }

@@ -321,7 +321,11 @@ function SettingsView({ data, onSaved }) {
                             ...item,
                             state: event.target.value,
                             remainingPercent:
-                              event.target.value === "exhausted" ? 0 : item.remainingPercent,
+                              event.target.value === "exhausted"
+                                ? 0
+                                : event.target.value === "unknown"
+                                  ? null
+                                  : item.remainingPercent,
                           }
                         : item,
                     ),
@@ -345,6 +349,7 @@ function SettingsView({ data, onSaved }) {
                       itemIndex === index
                         ? {
                             ...item,
+                            state: event.target.value === "" ? "unknown" : "available",
                             remainingPercent:
                               event.target.value === "" ? null : Number(event.target.value),
                           }

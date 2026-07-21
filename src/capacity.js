@@ -5,12 +5,22 @@ export function normalizeCapacity(config = {}) {
   const source = config.capacity || {};
   const agents = Object.fromEntries(configuredAgents.map((name) => {
     const value = source.agents?.[name] || {};
-    const state = CAPACITY_STATES.has(value.state) ? value.state : "unknown";
+    const requestedState = CAPACITY_STATES.has(value.state) ? value.state : "unknown";
     const hasRemaining = value.remainingPercent !== null && value.remainingPercent !== undefined;
     const numericRemaining = hasRemaining ? Number(value.remainingPercent) : Number.NaN;
-    const remainingPercent = Number.isFinite(numericRemaining)
+    const normalizedRemaining = Number.isFinite(numericRemaining)
       ? Math.min(100, Math.max(0, Math.round(numericRemaining)))
       : null;
+    const state = requestedState === "exhausted"
+      ? "exhausted"
+      : requestedState === "available" && normalizedRemaining !== null
+        ? "available"
+        : "unknown";
+    const remainingPercent = state === "exhausted"
+      ? 0
+      : state === "available"
+        ? normalizedRemaining
+        : null;
     return [name, {
       state,
       remainingPercent,
@@ -59,13 +69,21 @@ export function mergeCapacitySettings(config, input = {}) {
       throw new Error(`invalid capacity state for ${name}`);
     }
     const remaining = value.remainingPercent;
-    if (remaining !== null && remaining !== undefined &&
+    if (value.state === "available" && remaining !== null && remaining !== undefined &&
         (!Number.isFinite(Number(remaining)) || Number(remaining) < 0 || Number(remaining) > 100)) {
       throw new Error(`remainingPercent for ${name} must be between 0 and 100`);
     }
+    const numericRemaining = remaining === null || remaining === undefined
+      ? null
+      : Math.round(Number(remaining));
+    const state = value.state === "exhausted"
+      ? "exhausted"
+      : value.state === "available" && numericRemaining !== null
+        ? "available"
+        : "unknown";
     next.agents[name] = {
-      state: value.state,
-      remainingPercent: remaining === null || remaining === undefined ? null : Math.round(Number(remaining)),
+      state,
+      remainingPercent: state === "exhausted" ? 0 : state === "available" ? numericRemaining : null,
       resetsAt: typeof value.resetsAt === "string" && value.resetsAt ? value.resetsAt : null,
       source: "manual",
     };
