@@ -22,15 +22,71 @@ function captureOutput() {
   return { output, read: () => text };
 }
 
+async function waitForOutput(read, pattern) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (pattern.test(stripAnsi(read()))) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`timed out waiting for output: ${pattern}`);
+}
+
+function memorySessionStore(initial = []) {
+  let sequence = initial.length;
+  const sessions = new Map(initial.map((session) => [session.id, { ...session }]));
+  const resumable = new Set(["planning", "planned", "previewed", "running", "failed", "interrupted"]);
+  const save = async (session) => {
+    const next = { ...session, updatedAt: new Date().toISOString() };
+    sessions.set(next.id, next);
+    return next;
+  };
+  const list = async ({ resumableOnly = false, limit = 20 } = {}) =>
+    [...sessions.values()]
+      .filter((session) => !resumableOnly || resumable.has(session.status))
+      .sort((left, right) => right.id.localeCompare(left.id))
+      .slice(0, limit);
+  return {
+    async create(input) {
+      sequence += 1;
+      return save({
+        version: 1,
+        id: `session-${sequence}`,
+        ...input,
+        status: "planning",
+        attempts: 1,
+        events: [],
+        error: null,
+      });
+    },
+    async update(session, patch) {
+      return save({ ...session, ...patch });
+    },
+    async appendEvent(session, event) {
+      return save({
+        ...session,
+        runId: event.runId || session.runId,
+        events: [...(session.events || []), event],
+      });
+    },
+    async load(id) {
+      return sessions.get(id);
+    },
+    list,
+    async latestResumable() {
+      return (await list({ resumableOnly: true, limit: 1 }))[0];
+    },
+  };
+}
+
 function consoleOptions(input, output, overrides = {}) {
   return {
     root: "/tmp/example-repository",
-    version: "0.7.0-test",
+    version: "0.9.0-test",
     input: typeof input === "string" ? Readable.from([input]) : input,
     output,
     loadConfigFn: async () => ({ ...DEFAULT_CONFIG, executionMode: "manual" }),
     runDoctorFn: async () => healthyChecks,
     initializeProjectFn: async () => [],
+    sessionStore: memorySessionStore(),
     planWithStrategistFn: async ({ goal }) => ({
       version: 1,
       goal,
@@ -200,6 +256,210 @@ test("auto mode never executes when preview fails", async () => {
   assert.match(captured.read(), /Error  preview failed/);
 });
 
+test("failed planning can be resumed with durable AI context", async () => {
+  const sessionStore = memorySessionStore();
+  const firstOutput = captureOutput();
+  await startConsole(
+    consoleOptions("Ship the release\n/exit\n", firstOutput.output, {
+      sessionStore,
+      planWithStrategistFn: async () => {
+        throw new Error("codex planning failed: network unavailable");
+      },
+    }),
+  );
+
+  const failed = (await sessionStore.list())[0];
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /network unavailable/);
+
+  let recoveredInput;
+  const secondOutput = captureOutput();
+  await startConsole(
+    consoleOptions("/resume\n/exit\n", secondOutput.output, {
+      sessionStore,
+      planWithStrategistFn: async (input) => {
+        recoveredInput = input;
+        return {
+          version: 1,
+          goal: input.goal,
+          context: [],
+          tasks: [
+            {
+              id: "recovery",
+              agent: "codex",
+              mode: "write",
+              prompt: "Inspect current state and finish the release.",
+              dependsOn: [],
+            },
+          ],
+        };
+      },
+    }),
+  );
+
+  assert.match(secondOutput.read(), /Recovery.*can be continued with \/resume/s);
+  assert.match(secondOutput.read(), /Resuming.*from failed/s);
+  assert.match(recoveredInput.resumeContext, /network unavailable/);
+  assert.match(recoveredInput.resumeContext, /Ship the release/);
+  assert.equal((await sessionStore.load(failed.id)).status, "planned");
+});
+
+test("interactive resume opens a selector and continues the chosen session", async () => {
+  const sessionStore = memorySessionStore([
+    {
+      id: "session-1",
+      goal: "Older recovery",
+      strategist: "claude",
+      status: "failed",
+      attempts: 1,
+      updatedAt: "2026-07-21T08:00:00.000Z",
+      events: [],
+      error: "first failure",
+    },
+    {
+      id: "session-2",
+      goal: "Selected recovery",
+      strategist: "codex",
+      status: "interrupted",
+      attempts: 1,
+      updatedAt: "2026-07-21T09:00:00.000Z",
+      events: [],
+      error: "cancelled while planning",
+    },
+  ]);
+  const input = Readable.from(["/resume\n/exit\n"]);
+  const captured = captureOutput();
+  input.isTTY = true;
+  captured.output.isTTY = true;
+  let offeredSessions;
+  let planningInput;
+
+  await startConsole(
+    consoleOptions(input, captured.output, {
+      sessionStore,
+      selectResumeSessionFn: async ({ sessions }) => {
+        offeredSessions = sessions;
+        return sessions.find((session) => session.id === "session-2");
+      },
+      planWithStrategistFn: async (value) => {
+        planningInput = value;
+        return {
+          version: 1,
+          goal: value.goal,
+          context: [],
+          tasks: [
+            {
+              id: "recovery",
+              agent: "codex",
+              mode: "write",
+              prompt: "Continue the selected recovery.",
+              dependsOn: [],
+            },
+          ],
+        };
+      },
+    }),
+  );
+
+  assert.deepEqual(offeredSessions.map((session) => session.id), ["session-2", "session-1"]);
+  assert.equal(planningInput.goal, "Selected recovery");
+  assert.match(planningInput.resumeContext, /cancelled while planning/);
+  assert.match(captured.read(), /Resuming.*session-2 from interrupted/s);
+});
+
+test("resume selector cooperates with the active console readline interface", async () => {
+  const sessionStore = memorySessionStore([
+    {
+      id: "session-1",
+      goal: "Choose this session",
+      strategist: "codex",
+      status: "failed",
+      attempts: 1,
+      updatedAt: "2026-07-21T08:00:00.000Z",
+      events: [],
+      error: "network unavailable",
+    },
+    {
+      id: "session-2",
+      goal: "Initially highlighted session",
+      strategist: "codex",
+      status: "interrupted",
+      attempts: 1,
+      updatedAt: "2026-07-21T09:00:00.000Z",
+      events: [],
+      error: "planning cancelled",
+    },
+  ]);
+  const input = new PassThrough();
+  const captured = captureOutput();
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (value) => {
+    input.isRaw = value;
+  };
+  captured.output.isTTY = true;
+  captured.output.columns = 80;
+  let planningInput;
+
+  const running = startConsole(
+    consoleOptions(input, captured.output, {
+      sessionStore,
+      env: { TERM: "xterm" },
+      planWithStrategistFn: async (value) => {
+        planningInput = value;
+        return {
+          version: 1,
+          goal: value.goal,
+          context: [],
+          tasks: [
+            {
+              id: "recovery",
+              agent: "codex",
+              mode: "write",
+              prompt: "Continue recovery.",
+              dependsOn: [],
+            },
+          ],
+        };
+      },
+    }),
+  );
+  await waitForOutput(captured.read, /What are we building/);
+  input.write("/resume\n");
+  await waitForOutput(captured.read, /Resume a session/);
+  input.write("\u001b[B");
+  input.write("\r");
+  await waitForOutput(captured.read, /Resuming.*session-1 from failed/s);
+  input.end("/exit\n");
+  await running;
+
+  assert.equal(planningInput.goal, "Choose this session");
+  assert.match(planningInput.resumeContext, /network unavailable/);
+  assert.equal(input.isRaw, false);
+});
+
+test("a new goal abandons the previously offered recovery session", async () => {
+  const sessionStore = memorySessionStore([
+    {
+      id: "session-1",
+      goal: "Old interrupted goal",
+      strategist: "codex",
+      status: "failed",
+      attempts: 1,
+      events: [],
+      error: "network unavailable",
+    },
+  ]);
+  const captured = captureOutput();
+
+  await startConsole(
+    consoleOptions("Start a different goal\n/exit\n", captured.output, { sessionStore }),
+  );
+
+  assert.equal((await sessionStore.load("session-1")).status, "abandoned");
+  assert.equal((await sessionStore.latestResumable()).goal, "Start a different goal");
+});
+
 test("mode command changes execution behavior for the current session", async () => {
   const captured = captureOutput();
   const calls = [];
@@ -291,7 +551,7 @@ test("interactive console renders compact startup chrome", async () => {
   const output = captured.read();
   const plain = stripAnsi(output);
   assert.match(output, /\u001b\[/);
-  assert.match(plain, /STRATEGOS v0\.7\.0-test/);
+  assert.match(plain, /STRATEGOS v0\.9\.0-test/);
   assert.match(plain, /Agents\s+● claude\s+·\s+● codex\s+·\s+● copilot/);
   assert.match(plain, /\/help commands\s+·\s+\/mode manual\s+·\s+\/run after review/);
   assert.doesNotMatch(plain, /Claude Code test/);

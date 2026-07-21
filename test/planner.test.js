@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { extractPlanJson, planWithStrategist } from "../src/planner.js";
+import { buildStrategistPrompt, extractPlanJson, planWithStrategist } from "../src/planner.js";
 
 function plannedOutput(agent = "codex", mode = "write") {
   return JSON.stringify({
@@ -38,6 +38,21 @@ test("unwraps Claude structured output", () => {
     structured_output: JSON.parse(plannedOutput()),
   });
   assert.equal(extractPlanJson(output).tasks[0].id, "csv-export");
+});
+
+test("recovery planning tells the strategist to use saved progress", () => {
+  const prompt = buildStrategistPrompt({
+    goal: "Finish the release",
+    strategist: "codex",
+    workerAgents: ["codex", "claude"],
+    sharedContext: "Repository context",
+    resumeContext: '{"previousStatus":"failed","completedTask":"tests"}',
+    maxTasks: 12,
+  });
+
+  assert.match(prompt, /Recovery context/);
+  assert.match(prompt, /remaining work and verification/);
+  assert.match(prompt, /completedTask/);
 });
 
 test("invokes the selected CLI in read-only mode and validates its plan", async () => {

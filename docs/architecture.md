@@ -11,12 +11,15 @@
 6. Interactive input follows the visible execution mode: `auto` authorizes a
    planning call followed by preview and execution, while `manual` preserves an
    explicit `/run` gate.
+7. Provider-neutral session checkpoints preserve recovery context without
+   importing or depending on native vendor conversation histories.
 
 ## Components
 
 ```text
 User goal
-   │
+   ├──────────────► local session journal
+   │                       ▲
    ▼
 Strategist CLI (read-only)
    │ JSON task graph
@@ -38,6 +41,8 @@ Context compiler ─► task prompt
               └────────┼────────┘
                        ▼
            reports + run manifest
+                       │
+                       └──────► session checkpoints
 ```
 
 ### Plan validator
@@ -63,7 +68,8 @@ invoking the selected strategist CLI in read-only mode. The default auto mode
 previews the validated dependency waves and immediately invokes worker
 orchestration. Manual mode stops before execution and waits for `/run`. Slash
 commands provide execution-mode and strategist selection, plan loading, saving,
-previewing, execution, run status, agent health, and context inspection.
+previewing, execution, run status, session recovery, agent health, and context
+inspection.
 
 The console consumes structured progress events from the orchestrator. Event
 rendering is isolated from execution so terminal output failures cannot stop a
@@ -108,6 +114,15 @@ The orchestrator owns `.strategos/runs/`. Agent processes only work inside
 their assigned worktrees. `run.json` is the machine-readable source of truth;
 Markdown and log files are review artifacts.
 
+### Session journal
+
+The console owns atomic JSON checkpoints under `.git/strategos/sessions/`.
+They capture goals, plans, bounded progress events, manifests, and failures
+without changing the working tree. `/resume` compiles one checkpoint into a
+bounded recovery context for a new read-only strategist call. The strategist
+must inspect the current repository and plan remaining work rather than replay
+the old plan mechanically.
+
 ### Upgrade boundary
 
 The upgrade module detects whether Strategos is running from a global npm
@@ -116,7 +131,7 @@ dependency. Only a confirmed global npm installation is updated automatically.
 Other modes receive explicit commands so package-manager state and source
 checkouts are not silently replaced.
 
-## Non-goals for v0.7
+## Non-goals for v0.8
 
 - Porting native conversation histories between vendors.
 - Automatic branch merging or pushing.

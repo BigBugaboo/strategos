@@ -52,7 +52,15 @@ test("runs independent custom workers in isolated worktrees and preserves report
   };
 
   const events = [];
-  const result = await runPlan({ root, config, planInput, onEvent: (event) => events.push(event) });
+  const result = await runPlan({
+    root,
+    config,
+    planInput,
+    onEvent: async (event) => {
+      await Promise.resolve();
+      events.push(event);
+    },
+  });
   assert.equal(result.manifest.status, "succeeded");
   assert.equal(result.manifest.tasks.one.status, "succeeded");
   assert.equal(result.manifest.tasks.two.status, "succeeded");

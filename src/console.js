@@ -7,7 +7,14 @@ import { runDoctor } from "./doctor.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { buildWaves, validatePlan } from "./plan.js";
-import { createTerminalUi, renderInputChrome, renderWelcome } from "./terminal.js";
+import { buildResumeContext, createSessionStore } from "./session.js";
+import {
+  createTerminalUi,
+  formatResumeSession,
+  renderInputChrome,
+  renderWelcome,
+  selectResumeSession,
+} from "./terminal.js";
 import { ensureDir, writeJson } from "./utils.js";
 
 const DEFAULT_CONTEXT_PATHS = Object.freeze([
@@ -97,6 +104,8 @@ function consoleHelp(ui = createTerminalUi()) {
   /preview        Show dependency waves without running agents
   /run            Execute the current plan
   /status [id]    Show a run manifest
+  /sessions       List recent durable sessions
+  /resume [id]    Re-plan and continue the latest or selected session
   /agents         Recheck Git, Node.js, and agent CLIs
   /context        Show shared context files
   /init           Initialize Strategos without overwriting existing files
@@ -163,6 +172,8 @@ export async function startConsole(options) {
   const planWithStrategistFn = options.planWithStrategistFn || planWithStrategist;
   const loadRunFn = options.loadRunFn || loadRun;
   const initializeProjectFn = options.initializeProjectFn || initializeProject;
+  const sessionStore = options.sessionStore || createSessionStore(root);
+  const selectResumeSessionFn = options.selectResumeSessionFn || selectResumeSession;
   const interactive = Boolean(input.isTTY && output.isTTY);
   const ui = createTerminalUi({
     interactive,
@@ -172,6 +183,7 @@ export async function startConsole(options) {
   let config = await loadConfigFn(root);
   let checks = await runDoctorFn(config, root);
   let currentPlan;
+  let currentSession;
   let planningController;
   let planningInterruptArmed = false;
   let planningInterruptTimer;
@@ -211,6 +223,14 @@ export async function startConsole(options) {
     writeLine(output, "Enter a goal to ask the strategist, or use /help for commands.");
   };
   renderHeader();
+  const resumableSession = await sessionStore.latestResumable();
+  if (resumableSession) {
+    writeLine(output);
+    writeLine(
+      output,
+      `${ui.warning("Recovery")}  Session ${resumableSession.id} (${resumableSession.status}) can be continued with ${ui.accent("/resume")}.`,
+    );
+  }
 
   const rl = readline.createInterface({
     input,
@@ -265,6 +285,12 @@ export async function startConsole(options) {
   const previewCurrentPlan = async () => {
     if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
     const result = await runPlanFn({ root, config, planInput: currentPlan, dryRun: true });
+    if (currentSession) {
+      currentSession = await sessionStore.update(currentSession, {
+        status: "previewed",
+        plan: currentPlan,
+      });
+    }
     writeLine(output, `${ui.info("Preview")}  Max parallel: ${result.maxParallel}`);
     result.waves.forEach((wave, index) =>
       writeLine(output, `Wave ${index + 1}: ${wave.join(", ")}`),
@@ -274,8 +300,24 @@ export async function startConsole(options) {
 
   const executeCurrentPlan = async () => {
     if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
+    if (!currentSession) {
+      currentSession = await sessionStore.create({
+        goal: currentPlan.goal,
+        strategist: currentStrategist,
+        workerAgents: availableAgents(),
+        executionMode: currentExecutionMode,
+      });
+    }
+    currentSession = await sessionStore.update(currentSession, {
+      status: "running",
+      plan: currentPlan,
+      error: null,
+      finishedAt: null,
+    });
     writeLine(output, `${ui.info("Executing")}  Starting the current plan...`);
     executionActive = true;
+    let eventCheckpoint = Promise.resolve();
+    let checkpointError;
     try {
       const result = await runPlanFn({
         root,
@@ -284,16 +326,41 @@ export async function startConsole(options) {
         onEvent: (event) => {
           const message = formatEvent(event, ui);
           if (message) writeLine(output, message);
+          eventCheckpoint = eventCheckpoint
+            .then(async () => {
+              currentSession = await sessionStore.appendEvent(currentSession, event);
+            })
+            .catch((error) => {
+              checkpointError ||= error;
+            });
+          return eventCheckpoint;
         },
+      });
+      await eventCheckpoint;
+      if (checkpointError) throw checkpointError;
+      currentSession = await sessionStore.update(currentSession, {
+        status: result.manifest.status === "succeeded" ? "succeeded" : "failed",
+        runId: result.runId,
+        manifest: result.manifest,
+        error: result.manifest.status === "succeeded" ? null : "one or more worker tasks failed",
+        finishedAt: new Date().toISOString(),
       });
       writeLine(output, formatManifest(result.manifest, ui));
       return result;
+    } catch (error) {
+      await eventCheckpoint;
+      currentSession = await sessionStore.update(currentSession, {
+        status: "failed",
+        error: String(error.message || error).slice(0, 4_000),
+        finishedAt: new Date().toISOString(),
+      });
+      throw error;
     } finally {
       executionActive = false;
     }
   };
 
-  const propose = async (goal) => {
+  const propose = async (goal, resumeSession) => {
     const healthyAgents = availableAgents();
     if (!healthyAgents.includes(currentStrategist)) {
       throw new Error(`strategist ${currentStrategist} is unavailable; use /strategist <agent>`);
@@ -304,6 +371,31 @@ export async function startConsole(options) {
       config.workerMode,
     );
     currentPlan = undefined;
+    if (resumeSession) {
+      currentSession = await sessionStore.update(resumeSession, {
+        strategist: currentStrategist,
+        workerAgents,
+        executionMode: currentExecutionMode,
+        status: "planning",
+        attempts: (resumeSession.attempts || 1) + 1,
+        error: null,
+        finishedAt: null,
+      });
+    } else {
+      const superseded = await sessionStore.latestResumable();
+      if (superseded) {
+        await sessionStore.update(superseded, {
+          status: "abandoned",
+          finishedAt: new Date().toISOString(),
+        });
+      }
+      currentSession = await sessionStore.create({
+        goal,
+        strategist: currentStrategist,
+        workerAgents,
+        executionMode: currentExecutionMode,
+      });
+    }
     writeLine(output, `${ui.info("Planning")}  ${currentStrategist} is reading the repository in read-only mode...`);
     planningController = new AbortController();
     try {
@@ -314,11 +406,24 @@ export async function startConsole(options) {
         strategist: currentStrategist,
         workerAgents,
         signal: planningController.signal,
+        resumeContext: resumeSession ? buildResumeContext(resumeSession) : undefined,
       });
+    } catch (error) {
+      currentSession = await sessionStore.update(currentSession, {
+        status: /cancelled/i.test(error.message) ? "interrupted" : "failed",
+        error: String(error.message || error).slice(0, 4_000),
+        finishedAt: new Date().toISOString(),
+      });
+      throw error;
     } finally {
       resetPlanningInterrupt();
       planningController = undefined;
     }
+    currentSession = await sessionStore.update(currentSession, {
+      status: "planned",
+      plan: currentPlan,
+      error: null,
+    });
     writeLine(output);
     writeLine(output, `${ui.success("Plan ready")}  ${ui.muted(`proposed by ${currentStrategist}`)}`);
     writeLine(output, formatPlan(currentPlan, ui));
@@ -389,6 +494,7 @@ export async function startConsole(options) {
       }
       currentStrategist = argument;
       currentPlan = undefined;
+      currentSession = undefined;
       writeLine(output, `${ui.success("Strategist changed")}  ${currentStrategist}`);
       writeLine(output, ui.muted("Enter a goal to generate a new plan."));
       return;
@@ -403,6 +509,7 @@ export async function startConsole(options) {
       const file = safeRepoPath(root, argument);
       const inputPlan = JSON.parse(await fs.readFile(file, "utf8"));
       currentPlan = validatePlan(inputPlan, configuredAgents());
+      currentSession = undefined;
       writeLine(output, `${ui.success("Loaded")}  ${path.relative(root, file)}`);
       writeLine(output, formatPlan(currentPlan, ui));
       return;
@@ -427,6 +534,46 @@ export async function startConsole(options) {
     if (name === "status") {
       const manifest = await loadRunFn(root, argument || undefined);
       writeLine(output, formatManifest(manifest, ui));
+      return;
+    }
+    if (name === "sessions") {
+      const sessions = await sessionStore.list({ limit: 10 });
+      if (!sessions.length) {
+        writeLine(output, "No durable sessions found.");
+        return;
+      }
+      writeLine(output, ui.bold("Recent sessions"));
+      sessions.forEach((session) => {
+        const item = formatResumeSession(ui, session);
+        writeLine(output, `${session.id}  ${item.title}`);
+        writeLine(output, `  ${ui.muted(item.description)}`);
+      });
+      return;
+    }
+    if (name === "resume") {
+      let session;
+      if (argument) {
+        session = await sessionStore.load(argument);
+      } else if (interactive) {
+        const sessions = await sessionStore.list({ resumableOnly: true, limit: 10 });
+        if (!sessions.length) throw new Error("no resumable session found");
+        session = await selectResumeSessionFn({ sessions, input, output, ui });
+        if (!session) return;
+      } else {
+        session = await sessionStore.latestResumable();
+      }
+      if (!session) throw new Error(argument ? `session not found: ${argument}` : "no resumable session found");
+      if (session.status === "succeeded") throw new Error(`session is already complete: ${session.id}`);
+      if (availableAgents().includes(session.strategist)) {
+        currentStrategist = session.strategist;
+      } else if (session.strategist) {
+        writeLine(
+          output,
+          ui.warning(`Saved strategist ${session.strategist} is unavailable; using ${currentStrategist}.`),
+        );
+      }
+      writeLine(output, `${ui.info("Resuming")}  ${session.id} from ${session.status}`);
+      await propose(session.goal, session);
       return;
     }
     if (name === "agents" || name === "doctor") {
