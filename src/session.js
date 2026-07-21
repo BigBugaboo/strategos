@@ -57,6 +57,8 @@ function compactEvent(event, at) {
       id: event.task.id,
       agent: event.task.agent,
       mode: event.task.mode,
+      sessionId: event.task.sessionId,
+      sessionName: event.task.sessionName,
       status: event.task.status,
       branch: event.task.branch,
       changedFiles: event.task.changedFiles,
@@ -74,6 +76,7 @@ export function buildResumeContext(session) {
     previousStatus: session.status,
     previousStrategist: session.strategist,
     previousPlan: session.plan,
+    imageAttachments: session.attachments || [],
     runId: session.runId,
     lastManifest: session.manifest,
     executionEvents: session.events,
@@ -135,7 +138,7 @@ export function createSessionStore(root, options = {}) {
   };
 
   return {
-    async create({ goal, strategist, workerAgents, executionMode }) {
+    async create({ goal, strategist, workerAgents, executionMode, attachments = [] }) {
       const createdAt = timestamp();
       const session = {
         version: 1,
@@ -145,6 +148,7 @@ export function createSessionStore(root, options = {}) {
         strategist,
         workerAgents,
         executionMode,
+        attachments,
         status: "planning",
         attempts: 1,
         plan: null,

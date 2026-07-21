@@ -39,8 +39,15 @@ test("compiled prompt carries dependency reports and completion contract", () =>
     sharedContext: "Project rules",
     runMemory: "Earlier decision",
     dependencyReports: [{ id: "implementation", report: "Tests passed" }],
+    attachments: [{
+      id: "design",
+      relativePath: ".strategos/attachments/design.png",
+      mimeType: "image/png",
+    }],
   });
   assert.match(prompt, /Ship safely/);
   assert.match(prompt, /Tests passed/);
   assert.match(prompt, /Commands\/tests run/);
+  assert.match(prompt, /\.strategos\/attachments\/design\.png/);
+  assert.match(prompt, /untrusted user context/);
 });

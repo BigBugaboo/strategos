@@ -55,6 +55,24 @@ test("recovery planning tells the strategist to use saved progress", () => {
   assert.match(prompt, /completedTask/);
 });
 
+test("single CLI planning creates isolated sessions and includes image context", () => {
+  const prompt = buildStrategistPrompt({
+    goal: "Implement the attached design",
+    strategist: "codex",
+    workerAgents: ["codex"],
+    sharedContext: "Repository context",
+    attachments: [
+      { relativePath: ".strategos/attachments/design.png", mimeType: "image/png" },
+    ],
+    maxTasks: 12,
+  });
+
+  assert.match(prompt, /single-CLI multi-session mode/);
+  assert.match(prompt, /fresh,\nisolated codex process\/session/);
+  assert.match(prompt, /\.strategos\/attachments\/design\.png \(image\/png\)/);
+  assert.match(prompt, /two or three non-overlapping/);
+});
+
 test("invokes the selected CLI in read-only mode and validates its plan", async () => {
   let invocation;
   const plan = await planWithStrategist({

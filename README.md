@@ -40,6 +40,11 @@ Strategos provides a small neutral layer:
   run immediately; `/mode manual` restores an explicit execution gate.
 - **Durable recovery context**: goals, plans, progress, and failures are
   checkpointed locally so `/resume` can give a strategist the prior context.
+- **Image context**: `/attach <path>` sends PNG, JPEG, GIF, or WebP evidence to
+  the strategist and copies it into every isolated worker worktree.
+- **Single-CLI multi-session mode**: one healthy agent CLI is enough. Strategos
+  starts independent provider sessions/processes with distinct worktrees and
+  reports, and still runs safe tasks in parallel.
 - **Parallel waves** capped by a configurable concurrency limit.
 - **Worktree isolation** for every task, including independent branches.
 - **Provider adapters** for `claude`, `codex`, and `copilot` commands already
@@ -96,7 +101,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.9.2
+STRATEGOS v0.10.0
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -138,7 +143,7 @@ console commands include:
 
 ```text
 /new [goal]   /mode [auto|manual]  /strategist [agent]  /plan
-/load <file>
+/attach [path]  /attachments  /detach <id|all>  /load <file>
 /save [file]  /preview               /run        /status [id]
 /sessions     /resume [id]           /agents     /context
 /init         /help                  /exit
@@ -146,6 +151,37 @@ console commands include:
 
 See [docs/interactive-console.md](docs/interactive-console.md) for the complete
 workflow and current boundaries.
+
+### Add image context
+
+Attach a saved image before entering the goal:
+
+```text
+/attach ./screenshots/checkout-error.png
+❯ Rebuild this state and fix the validation flow
+```
+
+On macOS, copy an image and run `/attach` without a path after installing the
+optional clipboard helper with `brew install pngpaste`. `/attachments` lists
+the current image context and `/detach <id>` removes one. Terminal emulators
+such as Warp do not expose a pasted bitmap to child CLI processes, so raw
+Command+V is not intercepted; use `/attach <path>` or clipboard capture.
+
+Attachments are content-validated, capped at 20 MB, stored under the ignored
+`.strategos/attachments/` directory, persisted in the durable session journal,
+and restored by `/resume`. Codex receives native `--image` arguments, Copilot
+receives native `--attachment` arguments, and Claude reads the copied local
+paths from its task prompt.
+
+### Run with only one agent CLI
+
+When only one of Claude Code, Codex CLI, or Copilot CLI is healthy, the default
+`hybrid` worker mode automatically uses single-CLI multi-session orchestration. The
+strategist may create independent tasks for that same CLI; each task launches
+as a new process/session with a unique session ID, Git worktree, branch, prompt,
+and report. Independent tasks still respect `maxParallel`. Strategos does not
+share native vendor transcripts between those workers; dependency reports and
+the provider-neutral journal carry the shared context.
 
 Interactive terminals receive the compact colored interface shown above.
 Redirected output and CI remain free of ANSI control sequences. Set `NO_COLOR=1`
@@ -336,7 +372,7 @@ See [docs/architecture.md](docs/architecture.md) and
 
 Likely next steps:
 
-1. Resumable worker sessions and worker cancellation.
+1. Worker cancellation and native provider-session continuation where safe.
 2. Optional Docker/OS sandbox profiles.
 3. Cross-agent messaging through a typed local protocol.
 4. Test-gated merge queue with an explicit approval step.

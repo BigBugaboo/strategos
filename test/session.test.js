@@ -17,6 +17,13 @@ test("stores durable sessions under Git metadata and restores checkpoints", asyn
     strategist: "codex",
     workerAgents: ["claude", "codex"],
     executionMode: "auto",
+    attachments: [
+      {
+        id: "image-1",
+        relativePath: ".strategos/attachments/image-1-design.png",
+        mimeType: "image/png",
+      },
+    ],
   });
   session = await store.update(session, {
     status: "running",
@@ -28,6 +35,7 @@ test("stores durable sessions under Git metadata and restores checkpoints", asyn
       id: "release-notes",
       agent: "claude",
       status: "succeeded",
+      sessionId: "11111111-1111-4111-8111-111111111111",
       report: "Release notes completed.",
     },
   });
@@ -35,6 +43,8 @@ test("stores durable sessions under Git metadata and restores checkpoints", asyn
   const file = path.join(root, ".git", "strategos", "sessions", "session-test.json");
   assert.equal(JSON.parse(await fs.readFile(file, "utf8")).status, "running");
   assert.equal((await store.latestResumable()).events[0].task.id, "release-notes");
+  assert.equal((await store.latestResumable()).events[0].task.sessionId, "11111111-1111-4111-8111-111111111111");
+  assert.equal((await store.latestResumable()).attachments[0].id, "image-1");
 });
 
 test("completed sessions remain inspectable but are not offered for recovery", async () => {
@@ -67,9 +77,11 @@ test("resume context carries the prior plan, progress, and failure", () => {
     events: [{ type: "task_finished", task: { id: "implementation", status: "succeeded" } }],
     error: "network unavailable",
     updatedAt: "2026-07-21T00:00:00.000Z",
+    attachments: [{ id: "design", relativePath: ".strategos/attachments/design.png" }],
   });
 
   assert.match(context, /Add exports/);
   assert.match(context, /implementation/);
   assert.match(context, /network unavailable/);
+  assert.match(context, /\.strategos\/attachments\/design\.png/);
 });

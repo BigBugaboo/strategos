@@ -18,6 +18,12 @@ export function validatePlan(input, configuredAgents = []) {
   ) {
     throw new Error("plan.context must be an array of repository-relative paths");
   }
+  if (
+    input.attachments !== undefined &&
+    (!Array.isArray(input.attachments) || input.attachments.some((item) => typeof item !== "string"))
+  ) {
+    throw new Error("plan.attachments must be an array of repository-relative image paths");
+  }
 
   const allowedAgents = new Set([...BUILTIN_AGENTS, ...configuredAgents]);
   const ids = new Set();
@@ -59,6 +65,7 @@ export function validatePlan(input, configuredAgents = []) {
     version: 1,
     goal: input.goal.trim(),
     context: input.context || [],
+    attachments: input.attachments || [],
     tasks,
   };
   buildWaves(normalized);
