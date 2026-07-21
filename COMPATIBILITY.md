@@ -6,7 +6,7 @@ tracked as a tested baseline rather than as an exact runtime pin.
 
 ## Current baseline
 
-The Strategos `0.8.x` line is validated with Node.js 24 and the following agent
+The Strategos `0.9.x` line is validated with Node.js 24 and the following agent
 CLI releases:
 
 | Agent CLI | Tested version | Command surface used by Strategos |

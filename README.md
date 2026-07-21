@@ -96,7 +96,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.9.1
+STRATEGOS v0.9.2
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
