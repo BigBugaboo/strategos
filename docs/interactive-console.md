@@ -17,15 +17,16 @@ development goal.
 
 ## Planning and approval
 
-The `0.5.x` console delegates planning to one installed agent CLI instead of
+The `0.6.x` console delegates planning to one installed agent CLI instead of
 embedding a model provider:
 
 1. The configured strategist, `codex` by default, is invoked immediately in
    read-only mode when the user enters a goal.
 2. The strategist inspects the repository and receives shared project context,
    the available worker names, safety constraints, and the plan JSON schema.
-3. It returns a task graph for the other healthy agent CLIs. If only one CLI is
-   available, that CLI may plan first and work only after approval.
+3. It returns a task graph for the healthy worker pool. The default `hybrid`
+   pool includes the strategist, so it may plan first and receive a worker task
+   only after approval.
 4. Strategos extracts the JSON, validates task IDs, agents, modes,
    dependencies, task count, and cycles, then displays the proposed waves.
 5. The user reviews the result with `/plan` or `/preview` and explicitly enters
@@ -43,10 +44,21 @@ The default can be changed in `.strategos/config.json`:
 ```json
 {
   "strategist": "codex",
+  "workerMode": "hybrid",
   "planningTimeoutMinutes": 5,
   "maxPlanningTasks": 12
 }
 ```
+
+`workerMode` controls whether the planning CLI can also work:
+
+| Mode | Behavior |
+| --- | --- |
+| `hybrid` | Default. Every healthy CLI, including the strategist, is available for worker tasks after planning. The prompt asks the strategist to use all workers when meaningful work exists and to leave final independent review to another agent. |
+| `separated` | The strategist plans only and is removed from the worker pool. At least one other healthy CLI is required. |
+
+Changing `/strategist` affects which CLI plans; `workerMode` continues to
+control whether that selected CLI is also eligible for execution.
 
 ## Commands
 

@@ -50,8 +50,9 @@ The planner invokes one existing agent CLI through the same adapter boundary
 used by workers, but always in read-only mode and in the target repository. It
 supplies the goal, shared context, available worker capabilities, and the plan
 schema. Strategos extracts and validates the returned JSON; it has no model SDK
-or direct provider API dependency. The strategist is excluded from worker
-assignment when another healthy CLI is available.
+or direct provider API dependency. By default, hybrid participation keeps the
+strategist in the healthy worker pool after planning. A separated mode removes
+it when projects require strict role isolation.
 
 ### Interactive console
 
@@ -113,7 +114,7 @@ dependency. Only a confirmed global npm installation is updated automatically.
 Other modes receive explicit commands so package-manager state and source
 checkouts are not silently replaced.
 
-## Non-goals for v0.5
+## Non-goals for v0.6
 
 - Porting native conversation histories between vendors.
 - Automatic branch merging or pushing.

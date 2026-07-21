@@ -133,6 +133,18 @@ async function existingContextPaths(root, plan) {
   return existing;
 }
 
+export function selectWorkerAgents(healthyAgents, strategist, mode = "hybrid") {
+  if (mode === "hybrid") return [...healthyAgents];
+  if (mode === "separated") {
+    const workers = healthyAgents.filter((agent) => agent !== strategist);
+    if (!workers.length) {
+      throw new Error("separated worker mode requires a healthy CLI besides the strategist");
+    }
+    return workers;
+  }
+  throw new Error(`invalid workerMode: ${mode}; expected hybrid or separated`);
+}
+
 export async function startConsole(options) {
   const root = options.root;
   const input = options.input || process.stdin;
@@ -213,8 +225,11 @@ export async function startConsole(options) {
     if (!healthyAgents.includes(currentStrategist)) {
       throw new Error(`strategist ${currentStrategist} is unavailable; use /strategist <agent>`);
     }
-    const otherAgents = healthyAgents.filter((agent) => agent !== currentStrategist);
-    const workerAgents = otherAgents.length ? otherAgents : [currentStrategist];
+    const workerAgents = selectWorkerAgents(
+      healthyAgents,
+      currentStrategist,
+      config.workerMode,
+    );
     currentPlan = undefined;
     writeLine(output, `${ui.info("Planning")}  ${currentStrategist} is reading the repository in read-only mode...`);
     planningController = new AbortController();

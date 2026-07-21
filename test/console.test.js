@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough, Readable } from "node:stream";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { startConsole } from "../src/console.js";
+import { selectWorkerAgents, startConsole } from "../src/console.js";
 import { stripAnsi } from "../src/terminal.js";
 
 const healthyChecks = [
@@ -25,7 +25,7 @@ function captureOutput() {
 function consoleOptions(input, output, overrides = {}) {
   return {
     root: "/tmp/example-repository",
-    version: "0.5.0-test",
+    version: "0.6.0-test",
     input: typeof input === "string" ? Readable.from([input]) : input,
     output,
     loadConfigFn: async () => DEFAULT_CONFIG,
@@ -91,7 +91,7 @@ test("ordinary console input proposes a plan and previews its waves", async () =
   );
   const output = captured.read();
   assert.equal(planningInput.strategist, "codex");
-  assert.deepEqual(planningInput.workerAgents, ["claude", "copilot"]);
+  assert.deepEqual(planningInput.workerAgents, ["claude", "codex", "copilot"]);
   assert.match(output, /What do you want to accomplish/);
   assert.match(output, /Planning  codex is reading the repository/);
   assert.match(output, /Plan ready  proposed by codex/);
@@ -123,8 +123,26 @@ test("strategist can be changed for the current console session", async () => {
     }),
   );
   assert.equal(planningInput.strategist, "claude");
-  assert.deepEqual(planningInput.workerAgents, ["codex", "copilot"]);
+  assert.deepEqual(planningInput.workerAgents, ["claude", "codex", "copilot"]);
   assert.match(captured.read(), /Strategist changed  claude/);
+});
+
+test("separated mode excludes the strategist from the worker pool", () => {
+  assert.deepEqual(
+    selectWorkerAgents(["claude", "codex", "copilot"], "codex", "separated"),
+    ["claude", "copilot"],
+  );
+  assert.throws(
+    () => selectWorkerAgents(["codex"], "codex", "separated"),
+    /requires a healthy CLI besides the strategist/,
+  );
+});
+
+test("worker mode rejects unsupported values", () => {
+  assert.throws(
+    () => selectWorkerAgents(["claude", "codex"], "codex", "automatic"),
+    /invalid workerMode: automatic/,
+  );
 });
 
 test("run command renders live orchestration events", async () => {
@@ -178,7 +196,7 @@ test("interactive console renders compact startup chrome", async () => {
   const output = captured.read();
   const plain = stripAnsi(output);
   assert.match(output, /\u001b\[/);
-  assert.match(plain, /STRATEGOS v0\.5\.0-test/);
+  assert.match(plain, /STRATEGOS v0\.6\.0-test/);
   assert.match(plain, /Agents\s+● claude\s+·\s+● codex\s+·\s+● copilot/);
   assert.match(plain, /\/help commands\s+·\s+\/strategist codex planner/);
   assert.doesNotMatch(plain, /Claude Code test/);

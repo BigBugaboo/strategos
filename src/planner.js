@@ -99,17 +99,22 @@ export function extractPlanJson(output) {
 
 export function buildStrategistPrompt({ goal, strategist, workerAgents, sharedContext, maxTasks }) {
   const capabilities = workerAgents
-    .map((agent) =>
-      agent === "copilot"
-        ? `- ${agent}: read-only review and analysis tasks`
-        : `- ${agent}: write or read-only tasks`,
-    )
+    .map((agent) => {
+      const role = agent === strategist ? "; also the strategist for this planning call" : "";
+      return agent === "copilot"
+        ? `- ${agent}: read-only review and analysis tasks${role}`
+        : `- ${agent}: write or read-only tasks${role}`;
+    })
     .join("\n");
+  const hybrid = workerAgents.includes(strategist);
+  const participationPolicy = hybrid
+    ? `This session uses hybrid participation. After returning the plan, ${strategist}\nmay also execute assigned worker tasks. When another worker is available, keep\nthe final independent review or audit assigned to a different agent.`
+    : `This session uses separated participation. ${strategist} plans only and\nmust not receive a worker task.`;
 
   return `# Strategos planning assignment
 
 You are the **${strategist}** strategist. Inspect the repository in read-only
-mode and turn the user's goal into a small, executable task graph for other
+mode and turn the user's goal into a small, executable task graph for
 locally installed coding-agent CLIs.
 
 ## User goal
@@ -120,12 +125,15 @@ ${goal}
 
 ${capabilities}
 
+${participationPolicy}
+
 Use only the worker names above. Create no more than ${maxTasks} tasks. Keep
 write tasks independent when they can run safely in separate Git worktrees,
 and make integration or review tasks depend on the work they inspect. Do not
 assign overlapping write ownership to parallel tasks. Copilot must remain
-read-only. Include repository-relative context paths only when workers need
-them.
+read-only. Use every available worker when the goal provides enough meaningful
+independent work, but do not invent artificial tasks solely to include an
+agent. Include repository-relative context paths only when workers need them.
 
 ## Shared project context
 

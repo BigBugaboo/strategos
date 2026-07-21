@@ -64,7 +64,32 @@ test("invokes the selected CLI in read-only mode and validates its plan", async 
   assert.equal(plan.tasks[0].agent, "codex");
 });
 
-test("rejects tasks assigned to the strategist instead of a worker", async () => {
+test("hybrid planning allows the strategist to receive worker tasks", async () => {
+  let prompt;
+  const plan = await planWithStrategist({
+    root: "/tmp/example-repository",
+    config: DEFAULT_CONFIG,
+    goal: "Add CSV export",
+    strategist: "claude",
+    workerAgents: ["claude", "codex", "copilot"],
+    collectContextFn: async () => "",
+    runCommandFn: async (_command, args) => {
+      prompt = args.join("\n");
+      return {
+        code: 0,
+        stdout: plannedOutput("claude"),
+        stderr: "",
+        timedOut: false,
+      };
+    },
+  });
+
+  assert.equal(plan.tasks[0].agent, "claude");
+  assert.match(prompt, /hybrid participation/);
+  assert.match(prompt, /final independent review or audit/);
+});
+
+test("separated planning rejects tasks assigned to the strategist", async () => {
   await assert.rejects(
     planWithStrategist({
       root: "/tmp/example-repository",
