@@ -75,7 +75,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.8.0
+STRATEGOS v0.9.0
 Multi-agent strategy console · codex plans
 ~/你的/项目目录
 
@@ -105,8 +105,10 @@ Strategos 自身不接入模型 SDK、模型 API 或额外密钥。默认 `auto`
 检查，可在输入目标前执行 `/mode manual`，之后再用 `/run` 批准执行。规划过程中
 第一次按 `Ctrl+C` 只会提示中断风险，三秒内再次按下才会取消 strategist 调用；
 空闲时按 `Ctrl+C` 会退出指令台。中断或失败的任务会保留本地会话记录，下次启动
-会提示 `/resume`。恢复时 strategist 会收到原始目标、旧计划、任务进度和错误原因，
-并重新检查当前仓库，只规划剩余工作。常用命令：
+会提示 `/resume`。在交互式终端中，无参数 `/resume` 会打开 Claude Code 风格的
+会话选择器：使用上下键查看带标题和描述的历史会话，按 Enter 恢复，按 Esc 返回。
+恢复时 strategist 会收到所选会话的原始目标、旧计划、任务进度和错误原因，并重新
+检查当前仓库，只规划剩余工作。脚本或明确选择时仍可使用 `/resume <ID>`。常用命令：
 
 ```text
 /new [目标]   /mode [auto|manual]  /strategist [agent]  /plan

@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createTerminalUi, renderInputChrome, renderWelcome, stripAnsi } from "../src/terminal.js";
+import { PassThrough } from "node:stream";
+import {
+  createTerminalUi,
+  formatResumeSession,
+  renderInputChrome,
+  renderWelcome,
+  selectResumeSession,
+  stripAnsi,
+} from "../src/terminal.js";
 
 const checks = [
   { name: "git", ok: true, detail: "git version 2.55.0" },
@@ -65,4 +73,66 @@ test("expands unavailable tools into actionable startup warnings", () => {
 
   assert.match(output, /● claude\s+·\s+● codex\s+·\s+● copilot/);
   assert.match(output, /Warning  copilot unavailable — command not found/);
+});
+
+test("formats resume choices with a title and useful session details", () => {
+  const ui = createTerminalUi({ columns: 80 });
+  const item = formatResumeSession(
+    ui,
+    {
+      id: "session-release",
+      goal: "Ship the checkout release with focused regression tests",
+      strategist: "codex",
+      status: "failed",
+      updatedAt: "2026-07-21T09:50:00.000Z",
+      plan: { tasks: [{ id: "implementation" }, { id: "review" }] },
+      events: [
+        { type: "task_finished", task: { id: "implementation", status: "succeeded" } },
+      ],
+      error: "network unavailable",
+    },
+    { now: new Date("2026-07-21T10:00:00.000Z") },
+  );
+
+  assert.equal(item.title, "Ship the checkout release with focused regression tests");
+  assert.match(item.description, /failed · 10m ago · codex · 1\/2 tasks complete/);
+  assert.match(item.description, /network unavailable/);
+});
+
+test("interactive resume selector moves with arrow keys and returns the highlighted session", async () => {
+  const input = new PassThrough();
+  const captured = new PassThrough();
+  let output = "";
+  captured.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (value) => {
+    input.isRaw = value;
+  };
+  captured.isTTY = true;
+  const ui = createTerminalUi({ interactive: true, columns: 80, env: { TERM: "xterm" } });
+  const sessions = [
+    { id: "session-1", goal: "First task", status: "failed", updatedAt: "2026-07-21T09:00:00Z" },
+    { id: "session-2", goal: "Second task", status: "interrupted", updatedAt: "2026-07-21T09:30:00Z" },
+  ];
+
+  const selection = selectResumeSession({
+    sessions,
+    input,
+    output: captured,
+    ui,
+    now: new Date("2026-07-21T10:00:00Z"),
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  input.write("\u001b[B");
+  input.write("\r");
+
+  assert.equal((await selection).id, "session-2");
+  const plain = stripAnsi(output);
+  assert.match(plain, /Resume a session/);
+  assert.match(plain, /Use ↑\/↓ to select · Enter to resume · Esc to cancel/);
+  assert.match(plain, /Selected  Second task/);
+  assert.equal(input.isRaw, false);
 });
