@@ -8,8 +8,9 @@
    treated as portable state.
 4. Worktrees isolate writes. A human controls integration.
 5. Failure is local to a task whenever possible.
-6. Interactive input authorizes one read-only planning call; it never implies
-   permission to execute worker tasks.
+6. Interactive input follows the visible execution mode: `auto` authorizes a
+   planning call followed by preview and execution, while `manual` preserves an
+   explicit `/run` gate.
 
 ## Components
 
@@ -58,10 +59,11 @@ it when projects require strict role isolation.
 
 Running `strategos` without a subcommand starts a zero-dependency readline
 console. Ordinary text is converted into a strategist-generated task graph by
-invoking the selected strategist CLI in read-only mode. The user must
-explicitly enter `/run` before worker orchestration begins. Slash commands
-provide strategist selection, plan loading, saving, previewing, execution, run
-status, agent health, and context inspection.
+invoking the selected strategist CLI in read-only mode. The default auto mode
+previews the validated dependency waves and immediately invokes worker
+orchestration. Manual mode stops before execution and waits for `/run`. Slash
+commands provide execution-mode and strategist selection, plan loading, saving,
+previewing, execution, run status, agent health, and context inspection.
 
 The console consumes structured progress events from the orchestrator. Event
 rendering is isolated from execution so terminal output failures cannot stop a
@@ -114,7 +116,7 @@ dependency. Only a confirmed global npm installation is updated automatically.
 Other modes receive explicit commands so package-manager state and source
 checkouts are not silently replaced.
 
-## Non-goals for v0.6
+## Non-goals for v0.7
 
 - Porting native conversation histories between vendors.
 - Automatic branch merging or pushing.

@@ -18,13 +18,16 @@ test("init is non-destructive and idempotent", async () => {
 test("hybrid worker participation is the default and can be separated", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "strategos-config-"));
   assert.equal(DEFAULT_CONFIG.workerMode, "hybrid");
+  assert.equal(DEFAULT_CONFIG.executionMode, "auto");
   assert.equal((await loadConfig(root)).workerMode, "hybrid");
+  assert.equal((await loadConfig(root)).executionMode, "auto");
 
   await fs.mkdir(path.join(root, ".strategos"));
   await fs.writeFile(
     path.join(root, ".strategos", "config.json"),
-    `${JSON.stringify({ workerMode: "separated" })}\n`,
+    `${JSON.stringify({ workerMode: "separated", executionMode: "manual" })}\n`,
     "utf8",
   );
   assert.equal((await loadConfig(root)).workerMode, "separated");
+  assert.equal((await loadConfig(root)).executionMode, "manual");
 });
