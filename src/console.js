@@ -87,6 +87,8 @@ function formatEvent(event, ui = createTerminalUi()) {
 function consoleHelp(ui = createTerminalUi()) {
   return `${ui.bold("Commands")}
   /new [goal]     Ask the strategist to create a new plan
+  /mode [auto|manual]
+                  Show or change execution mode for this session
   /strategist [agent]
                   Show or select the planning CLI for this session
   /plan           Show the current plan
@@ -100,7 +102,7 @@ function consoleHelp(ui = createTerminalUi()) {
   /init           Initialize Strategos without overwriting existing files
   /clear          Clear the terminal
   /help           Show this help
-  /exit           Exit Strategos
+  /exit           Exit Strategos (Ctrl+C also exits when idle)
 
 ${ui.muted("Enter ordinary text to ask the strategist CLI to create a task graph.")}`;
 }
@@ -133,6 +135,23 @@ async function existingContextPaths(root, plan) {
   return existing;
 }
 
+export function selectWorkerAgents(healthyAgents, strategist, mode = "hybrid") {
+  if (mode === "hybrid") return [...healthyAgents];
+  if (mode === "separated") {
+    const workers = healthyAgents.filter((agent) => agent !== strategist);
+    if (!workers.length) {
+      throw new Error("separated worker mode requires a healthy CLI besides the strategist");
+    }
+    return workers;
+  }
+  throw new Error(`invalid workerMode: ${mode}; expected hybrid or separated`);
+}
+
+export function normalizeExecutionMode(mode = "auto") {
+  if (mode === "auto" || mode === "manual") return mode;
+  throw new Error(`invalid executionMode: ${mode}; expected auto or manual`);
+}
+
 export async function startConsole(options) {
   const root = options.root;
   const input = options.input || process.stdin;
@@ -154,7 +173,11 @@ export async function startConsole(options) {
   let checks = await runDoctorFn(config, root);
   let currentPlan;
   let planningController;
+  let planningInterruptArmed = false;
+  let planningInterruptTimer;
+  let executionActive = false;
   let shouldExit = false;
+  let currentExecutionMode = normalizeExecutionMode(config.executionMode);
   const configuredAgents = () => Object.keys(config.agents || {});
   const availableAgents = () =>
     checks
@@ -167,13 +190,20 @@ export async function startConsole(options) {
 
   const renderHeader = () => {
     if (interactive) {
-      writeLine(output, renderWelcome(ui, { version, root, strategist: currentStrategist, checks }));
+      writeLine(output, renderWelcome(ui, {
+        version,
+        root,
+        strategist: currentStrategist,
+        executionMode: currentExecutionMode,
+        checks,
+      }));
       return;
     }
     writeLine(output, `Strategos ${version}`);
     writeLine(output, `Project: ${path.basename(root)}`);
     writeLine(output, `Path: ${root}`);
     writeLine(output, `Strategist: ${currentStrategist}`);
+    writeLine(output, `Execution mode: ${currentExecutionMode}`);
     writeLine(output);
     writeLine(output, formatDoctor(checks));
     writeLine(output);
@@ -191,30 +221,88 @@ export async function startConsole(options) {
   const promptUser = () => {
     if (!interactive || rl.closed) return;
     writeLine(output);
-    writeLine(output, renderInputChrome(ui, currentStrategist));
+    writeLine(output, renderInputChrome(ui, currentExecutionMode));
     rl.setPrompt(ui.prompt);
     rl.prompt();
+  };
+  const resetPlanningInterrupt = () => {
+    planningInterruptArmed = false;
+    if (planningInterruptTimer) clearTimeout(planningInterruptTimer);
+    planningInterruptTimer = undefined;
   };
   if (interactive) {
     rl.on("SIGINT", () => {
       if (planningController) {
+        if (!planningInterruptArmed) {
+          planningInterruptArmed = true;
+          writeLine(
+            output,
+            `\n${ui.warning("Press Ctrl+C again within 3 seconds to interrupt planning.")}`,
+          );
+          planningInterruptTimer = setTimeout(resetPlanningInterrupt, 3_000);
+          planningInterruptTimer.unref?.();
+          return;
+        }
+        resetPlanningInterrupt();
         writeLine(output, `\n${ui.warning("Cancelling strategist...")}`);
         planningController.abort();
         return;
       }
-      writeLine(output, `\n${ui.muted("Use /exit to leave Strategos.")}`);
-      promptUser();
+      if (executionActive) {
+        writeLine(
+          output,
+          `\n${ui.warning("Worker execution is still running; cancellation is not supported yet.")}`,
+        );
+        return;
+      }
+      shouldExit = true;
+      writeLine(output, `\n${ui.muted("Goodbye.")}`);
+      rl.close();
     });
     promptUser();
   }
+
+  const previewCurrentPlan = async () => {
+    if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
+    const result = await runPlanFn({ root, config, planInput: currentPlan, dryRun: true });
+    writeLine(output, `${ui.info("Preview")}  Max parallel: ${result.maxParallel}`);
+    result.waves.forEach((wave, index) =>
+      writeLine(output, `Wave ${index + 1}: ${wave.join(", ")}`),
+    );
+    return result;
+  };
+
+  const executeCurrentPlan = async () => {
+    if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
+    writeLine(output, `${ui.info("Executing")}  Starting the current plan...`);
+    executionActive = true;
+    try {
+      const result = await runPlanFn({
+        root,
+        config,
+        planInput: currentPlan,
+        onEvent: (event) => {
+          const message = formatEvent(event, ui);
+          if (message) writeLine(output, message);
+        },
+      });
+      writeLine(output, formatManifest(result.manifest, ui));
+      return result;
+    } finally {
+      executionActive = false;
+    }
+  };
 
   const propose = async (goal) => {
     const healthyAgents = availableAgents();
     if (!healthyAgents.includes(currentStrategist)) {
       throw new Error(`strategist ${currentStrategist} is unavailable; use /strategist <agent>`);
     }
-    const otherAgents = healthyAgents.filter((agent) => agent !== currentStrategist);
-    const workerAgents = otherAgents.length ? otherAgents : [currentStrategist];
+    const workerAgents = selectWorkerAgents(
+      healthyAgents,
+      currentStrategist,
+      config.workerMode,
+    );
     currentPlan = undefined;
     writeLine(output, `${ui.info("Planning")}  ${currentStrategist} is reading the repository in read-only mode...`);
     planningController = new AbortController();
@@ -228,12 +316,19 @@ export async function startConsole(options) {
         signal: planningController.signal,
       });
     } finally {
+      resetPlanningInterrupt();
       planningController = undefined;
     }
     writeLine(output);
     writeLine(output, `${ui.success("Plan ready")}  ${ui.muted(`proposed by ${currentStrategist}`)}`);
     writeLine(output, formatPlan(currentPlan, ui));
     writeLine(output);
+    if (currentExecutionMode === "auto") {
+      writeLine(output, `${ui.info("Auto mode")}  Previewing before execution...`);
+      await previewCurrentPlan();
+      await executeCurrentPlan();
+      return;
+    }
     writeLine(output, `${ui.muted("Next ")} ${ui.accent("/preview")}  ${ui.accent("/run")}  ${ui.accent("/save")}`);
   };
 
@@ -262,6 +357,23 @@ export async function startConsole(options) {
       else {
         writeLine(output, "Describe the new goal on the next line.");
       }
+      return;
+    }
+    if (name === "mode") {
+      if (!argument) {
+        writeLine(output, `${ui.muted("Execution mode")} ${ui.accent(currentExecutionMode)}`);
+        return;
+      }
+      currentExecutionMode = normalizeExecutionMode(argument.toLowerCase());
+      writeLine(output, `${ui.success("Execution mode changed")}  ${currentExecutionMode}`);
+      writeLine(
+        output,
+        ui.muted(
+          currentExecutionMode === "auto"
+            ? "New goals will preview and run automatically."
+            : "New goals will stop after planning until you use /run.",
+        ),
+      );
       return;
     }
     if (name === "strategist") {
@@ -305,25 +417,11 @@ export async function startConsole(options) {
       return;
     }
     if (name === "preview") {
-      if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
-      const result = await runPlanFn({ root, config, planInput: currentPlan, dryRun: true });
-      writeLine(output, `Max parallel: ${result.maxParallel}`);
-      result.waves.forEach((wave, index) => writeLine(output, `Wave ${index + 1}: ${wave.join(", ")}`));
+      await previewCurrentPlan();
       return;
     }
     if (name === "run") {
-      if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
-      writeLine(output, `${ui.info("Executing")}  Starting the approved plan...`);
-      const result = await runPlanFn({
-        root,
-        config,
-        planInput: currentPlan,
-        onEvent: (event) => {
-          const message = formatEvent(event, ui);
-          if (message) writeLine(output, message);
-        },
-      });
-      writeLine(output, formatManifest(result.manifest, ui));
+      await executeCurrentPlan();
       return;
     }
     if (name === "status") {

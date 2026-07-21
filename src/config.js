@@ -5,6 +5,8 @@ import { ensureDir, readJson, writeJson } from "./utils.js";
 export const DEFAULT_CONFIG = Object.freeze({
   maxParallel: 3,
   strategist: "codex",
+  workerMode: "hybrid",
+  executionMode: "auto",
   planningTimeoutMinutes: 5,
   maxPlanningTasks: 12,
   baseRef: "HEAD",
