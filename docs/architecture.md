@@ -66,6 +66,13 @@ The console consumes structured progress events from the orchestrator. Event
 rendering is isolated from execution so terminal output failures cannot stop a
 run.
 
+### Terminal presenter
+
+The dependency-free terminal presenter owns ANSI capability detection, semantic
+colors, responsive separators, compact startup health, and input guidance. It
+activates only when both stdin and stdout are TTYs. Non-TTY output stays plain,
+and `NO_COLOR` disables styling without changing content or commands.
+
 ### Context compiler
 
 Each task receives:
@@ -106,7 +113,7 @@ dependency. Only a confirmed global npm installation is updated automatically.
 Other modes receive explicit commands so package-manager state and source
 checkouts are not silently replaced.
 
-## Non-goals for v0.4
+## Non-goals for v0.5
 
 - Porting native conversation histories between vendors.
 - Automatic branch merging or pushing.

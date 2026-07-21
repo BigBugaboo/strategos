@@ -60,17 +60,23 @@ strategos
 ```
 
 ```text
-Strategos 0.4.0
-Strategist: codex
-Agents: ✓ Claude  ✓ Codex  ✓ Copilot
+STRATEGOS v0.5.0
+Multi-agent strategy console · codex plans
+~/path/to/your/repository
 
-What do you want to accomplish?
-> Add CSV export and focused tests
+Agents   ● claude  ·  ● codex  ·  ● copilot
+Runtime  Node v24.18.0 · Git 2.55.0
 
-Asking codex to plan in read-only mode...
-Proposed by codex (review before running):
-Wave 1: implementation
-Wave 2: review
+What are we building?
+Describe a goal. The strategist plans first; /run starts workers.
+
+────────────────────────────────────────────────────────
+/help commands  ·  /strategist codex planner  ·  /run after review
+❯ Add CSV export and focused tests
+
+Planning  codex is reading the repository in read-only mode...
+Plan ready  proposed by codex
+Flow  1 implementation  →  2 review
 ```
 
 Ordinary text immediately asks the configured strategist CLI to inspect the
@@ -88,6 +94,10 @@ call. Useful console commands include:
 
 See [docs/interactive-console.md](docs/interactive-console.md) for the complete
 workflow and current boundaries.
+
+Interactive terminals receive the compact colored interface shown above.
+Redirected output and CI remain free of ANSI control sequences. Set `NO_COLOR=1`
+to disable color explicitly; `/agents` shows the full version and health detail.
 
 ### Run directly with `npx`
 
@@ -274,7 +284,7 @@ See [docs/architecture.md](docs/architecture.md) and
 
 Likely next steps:
 
-1. Resumable process sessions, cancellation, and richer terminal rendering.
+1. Resumable worker sessions and worker cancellation.
 2. Optional Docker/OS sandbox profiles.
 3. Cross-agent messaging through a typed local protocol.
 4. Test-gated merge queue with an explicit approval step.

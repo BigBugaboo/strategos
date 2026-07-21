@@ -17,7 +17,7 @@ development goal.
 
 ## Planning and approval
 
-The `0.4.x` console delegates planning to one installed agent CLI instead of
+The `0.5.x` console delegates planning to one installed agent CLI instead of
 embedding a model provider:
 
 1. The configured strategist, `codex` by default, is invoked immediately in
@@ -66,6 +66,26 @@ The default can be changed in `.strategos/config.json`:
 | `/clear` | Clear an interactive terminal. |
 | `/help` | Show command help. |
 | `/exit` | Close the console. |
+
+## Terminal presentation
+
+Interactive terminals use a compact four-level layout inspired by mature
+coding-agent consoles:
+
+1. A Strategos wordmark, version, active strategist, and shortened repository
+   path establish the session.
+2. Healthy agents and runtime dependencies are summarized on two lines;
+   unavailable tools expand into warnings.
+3. A dedicated input boundary separates conversation output from the next
+   goal or slash command.
+4. A muted footer keeps `/help`, strategist selection, and the `/run` approval
+   boundary visible without repeating the full command list.
+
+The presentation uses Strategos colors and wording rather than another tool's
+brand assets. Terminal width is clamped to keep separators readable on narrow
+and very wide windows. `NO_COLOR=1` disables styling. Non-TTY output, pipes,
+logs, and CI never receive ANSI styling, preserving the automation contract.
+Use `/agents` when full command versions or failure details are needed.
 
 ## Live execution
 

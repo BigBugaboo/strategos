@@ -44,17 +44,23 @@ strategos
 ```
 
 ```text
-Strategos 0.4.0
-Strategist: codex
-Agents: ✓ Claude  ✓ Codex  ✓ Copilot
+STRATEGOS v0.5.0
+Multi-agent strategy console · codex plans
+~/你的/项目目录
 
-What do you want to accomplish?
-> 为订单列表增加 CSV 导出并补齐测试
+Agents   ● claude  ·  ● codex  ·  ● copilot
+Runtime  Node v24.18.0 · Git 2.55.0
 
-Asking codex to plan in read-only mode...
-Proposed by codex (review before running):
-Wave 1: implementation
-Wave 2: review
+What are we building?
+Describe a goal. The strategist plans first; /run starts workers.
+
+────────────────────────────────────────────────────────
+/help commands  ·  /strategist codex planner  ·  /run after review
+❯ 为订单列表增加 CSV 导出并补齐测试
+
+Planning  codex is reading the repository in read-only mode...
+Plan ready  proposed by codex
+Flow  1 implementation  →  2 review
 ```
 
 输入普通文本后，Strategos 会立即以只读模式调用配置的 strategist CLI，让它
@@ -71,6 +77,9 @@ Wave 2: review
 
 完整流程和当前边界详见
 [docs/interactive-console.md](docs/interactive-console.md)（英文标准文档）。
+
+交互式终端会显示上述紧凑彩色界面；重定向输出和 CI 不会包含 ANSI 控制字符。
+可设置 `NO_COLOR=1` 关闭颜色，使用 `/agents` 查看完整版本和健康详情。
 
 ### 使用 `npx` 直接运行
 

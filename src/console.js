@@ -7,6 +7,7 @@ import { runDoctor } from "./doctor.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { buildWaves, validatePlan } from "./plan.js";
+import { createTerminalUi, renderInputChrome, renderWelcome } from "./terminal.js";
 import { ensureDir, writeJson } from "./utils.js";
 
 const DEFAULT_CONTEXT_PATHS = Object.freeze([
@@ -19,7 +20,7 @@ function writeLine(output, text = "") {
   output.write(`${text}\n`);
 }
 
-export function formatPlan(plan) {
+export function formatPlan(plan, ui = createTerminalUi()) {
   const waves = buildWaves(plan);
   const rows = plan.tasks.map((task) => [
     task.id,
@@ -33,51 +34,58 @@ export function formatPlan(plan) {
   );
   const render = (row) => row.map((cell, index) => cell.padEnd(widths[index])).join("  ");
   return [
-    `Goal: ${plan.goal}`,
+    `${ui.muted("Goal ")} ${ui.bold(plan.goal)}`,
     "",
     render(headers),
     render(widths.map((width) => "-".repeat(width))),
     ...rows.map(render),
     "",
-    ...waves.map((wave, index) => `Wave ${index + 1}: ${wave.map((task) => task.id).join(", ")}`),
+    `${ui.muted("Flow ")} ${waves
+      .map((wave, index) => `${index + 1} ${wave.map((task) => task.id).join(" + ")}`)
+      .join(ui.muted("  →  "))}`,
   ].join("\n");
 }
 
-function formatDoctor(checks) {
+function formatDoctor(checks, ui = createTerminalUi()) {
   const width = Math.max(...checks.map((check) => check.name.length));
   return checks
     .map((check) => {
-      const marker = check.ok ? "✓" : "✗";
-      return `${marker} ${check.name.padEnd(width)}  ${check.detail}`;
+      const marker = check.ok ? ui.success("●") : ui.error("●");
+      return `${marker} ${check.name.padEnd(width)}  ${ui.muted(check.detail)}`;
     })
     .join("\n");
 }
 
-function formatManifest(manifest) {
-  const lines = [`Run: ${manifest.id}`, `Status: ${manifest.status}`];
+function formatManifest(manifest, ui = createTerminalUi()) {
+  const status = manifest.status === "succeeded" ? ui.success(manifest.status) : ui.error(manifest.status);
+  const lines = [`${ui.muted("Run   ")} ${manifest.id}`, `${ui.muted("Status")} ${status}`];
   for (const task of Object.values(manifest.tasks)) {
-    lines.push(`${task.status === "succeeded" ? "✓" : "✗"} ${task.id}  ${task.agent}  ${task.status}`);
-    if (task.branch) lines.push(`  branch: ${task.branch}`);
-    if (task.error) lines.push(`  error: ${task.error}`);
+    const marker = task.status === "succeeded" ? ui.success("●") : ui.error("●");
+    lines.push(`${marker} ${task.id}  ${ui.accent(task.agent)}  ${task.status}`);
+    if (task.branch) lines.push(`  ${ui.muted("branch")} ${task.branch}`);
+    if (task.error) lines.push(`  ${ui.error("error")} ${task.error}`);
   }
   return lines.join("\n");
 }
 
-function formatEvent(event) {
-  if (event.type === "run_started") return `◆ Run ${event.runId} started`;
-  if (event.type === "task_preparing") return `○ ${event.task.id}  ${event.task.agent}  preparing`;
-  if (event.type === "task_started") return `◆ ${event.task.id}  ${event.task.agent}  running`;
-  if (event.type === "task_skipped") return `- ${event.task.id}  skipped  ${event.task.error}`;
+function formatEvent(event, ui = createTerminalUi()) {
+  if (event.type === "run_started") return `${ui.info("●")} Run ${event.runId} started`;
+  if (event.type === "task_preparing") return `${ui.muted("○")} ${event.task.id}  ${event.task.agent}  preparing`;
+  if (event.type === "task_started") return `${ui.info("●")} ${event.task.id}  ${event.task.agent}  running`;
+  if (event.type === "task_skipped") return `${ui.warning("○")} ${event.task.id}  skipped  ${event.task.error}`;
   if (event.type === "task_finished") {
-    const marker = event.task.status === "succeeded" ? "✓" : "✗";
+    const marker = event.task.status === "succeeded" ? ui.success("●") : ui.error("●");
     return `${marker} ${event.task.id}  ${event.task.agent}  ${event.task.status}`;
   }
-  if (event.type === "run_finished") return `◆ Run finished: ${event.manifest.status}`;
+  if (event.type === "run_finished") {
+    const status = event.manifest.status === "succeeded" ? ui.success(event.manifest.status) : ui.error(event.manifest.status);
+    return `${ui.info("●")} Run finished: ${status}`;
+  }
   return undefined;
 }
 
-function consoleHelp() {
-  return `Commands:
+function consoleHelp(ui = createTerminalUi()) {
+  return `${ui.bold("Commands")}
   /new [goal]     Ask the strategist to create a new plan
   /strategist [agent]
                   Show or select the planning CLI for this session
@@ -94,7 +102,7 @@ function consoleHelp() {
   /help           Show this help
   /exit           Exit Strategos
 
-Enter ordinary text to ask the strategist CLI to create a task graph.`;
+${ui.muted("Enter ordinary text to ask the strategist CLI to create a task graph.")}`;
 }
 
 function safeRepoPath(root, input) {
@@ -136,6 +144,12 @@ export async function startConsole(options) {
   const planWithStrategistFn = options.planWithStrategistFn || planWithStrategist;
   const loadRunFn = options.loadRunFn || loadRun;
   const initializeProjectFn = options.initializeProjectFn || initializeProject;
+  const interactive = Boolean(input.isTTY && output.isTTY);
+  const ui = createTerminalUi({
+    interactive,
+    columns: output.columns,
+    env: options.env || process.env,
+  });
   let config = await loadConfigFn(root);
   let checks = await runDoctorFn(config, root);
   let currentPlan;
@@ -151,15 +165,22 @@ export async function startConsole(options) {
     currentStrategist = availableAgents()[0];
   }
 
-  writeLine(output, `Strategos ${version}`);
-  writeLine(output, `Project: ${path.basename(root)}`);
-  writeLine(output, `Path: ${root}`);
-  writeLine(output, `Strategist: ${currentStrategist}`);
-  writeLine(output);
-  writeLine(output, formatDoctor(checks));
-  writeLine(output);
-  writeLine(output, "What do you want to accomplish?");
-  writeLine(output, "Enter a goal to ask the strategist, or use /help for commands.");
+  const renderHeader = () => {
+    if (interactive) {
+      writeLine(output, renderWelcome(ui, { version, root, strategist: currentStrategist, checks }));
+      return;
+    }
+    writeLine(output, `Strategos ${version}`);
+    writeLine(output, `Project: ${path.basename(root)}`);
+    writeLine(output, `Path: ${root}`);
+    writeLine(output, `Strategist: ${currentStrategist}`);
+    writeLine(output);
+    writeLine(output, formatDoctor(checks));
+    writeLine(output);
+    writeLine(output, "What do you want to accomplish?");
+    writeLine(output, "Enter a goal to ask the strategist, or use /help for commands.");
+  };
+  renderHeader();
 
   const rl = readline.createInterface({
     input,
@@ -167,19 +188,24 @@ export async function startConsole(options) {
     terminal: Boolean(input.isTTY && output.isTTY),
     historySize: 100,
   });
-  const interactive = Boolean(input.isTTY && output.isTTY);
-  if (interactive) {
-    rl.setPrompt("strategos › ");
+  const promptUser = () => {
+    if (!interactive || rl.closed) return;
+    writeLine(output);
+    writeLine(output, renderInputChrome(ui, currentStrategist));
+    rl.setPrompt(ui.prompt);
     rl.prompt();
+  };
+  if (interactive) {
     rl.on("SIGINT", () => {
       if (planningController) {
-        writeLine(output, "\nCancelling strategist...");
+        writeLine(output, `\n${ui.warning("Cancelling strategist...")}`);
         planningController.abort();
         return;
       }
-      writeLine(output, "\nUse /exit to leave Strategos.");
-      rl.prompt();
+      writeLine(output, `\n${ui.muted("Use /exit to leave Strategos.")}`);
+      promptUser();
     });
+    promptUser();
   }
 
   const propose = async (goal) => {
@@ -190,7 +216,7 @@ export async function startConsole(options) {
     const otherAgents = healthyAgents.filter((agent) => agent !== currentStrategist);
     const workerAgents = otherAgents.length ? otherAgents : [currentStrategist];
     currentPlan = undefined;
-    writeLine(output, `Asking ${currentStrategist} to plan in read-only mode...`);
+    writeLine(output, `${ui.info("Planning")}  ${currentStrategist} is reading the repository in read-only mode...`);
     planningController = new AbortController();
     try {
       currentPlan = await planWithStrategistFn({
@@ -205,10 +231,10 @@ export async function startConsole(options) {
       planningController = undefined;
     }
     writeLine(output);
-    writeLine(output, `Proposed by ${currentStrategist} (review before running):`);
-    writeLine(output, formatPlan(currentPlan));
+    writeLine(output, `${ui.success("Plan ready")}  ${ui.muted(`proposed by ${currentStrategist}`)}`);
+    writeLine(output, formatPlan(currentPlan, ui));
     writeLine(output);
-    writeLine(output, "Next: /preview, /run, /save, or enter a different goal.");
+    writeLine(output, `${ui.muted("Next ")} ${ui.accent("/preview")}  ${ui.accent("/run")}  ${ui.accent("/save")}`);
   };
 
   const handleCommand = async (line) => {
@@ -221,11 +247,14 @@ export async function startConsole(options) {
       return;
     }
     if (name === "help" || !name) {
-      writeLine(output, consoleHelp());
+      writeLine(output, consoleHelp(ui));
       return;
     }
     if (name === "clear") {
-      if (interactive) output.write("\u001Bc");
+      if (interactive) {
+        output.write("\u001Bc");
+        renderHeader();
+      }
       return;
     }
     if (name === "new") {
@@ -237,7 +266,7 @@ export async function startConsole(options) {
     }
     if (name === "strategist") {
       if (!argument) {
-        writeLine(output, `Strategist: ${currentStrategist}`);
+        writeLine(output, `${ui.muted("Strategist")} ${ui.accent(currentStrategist)}`);
         return;
       }
       if (!configuredAgents().includes(argument)) {
@@ -248,13 +277,13 @@ export async function startConsole(options) {
       }
       currentStrategist = argument;
       currentPlan = undefined;
-      writeLine(output, `Strategist: ${currentStrategist}`);
-      writeLine(output, "Enter a goal to generate a new plan.");
+      writeLine(output, `${ui.success("Strategist changed")}  ${currentStrategist}`);
+      writeLine(output, ui.muted("Enter a goal to generate a new plan."));
       return;
     }
     if (name === "plan") {
       if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
-      writeLine(output, formatPlan(currentPlan));
+      writeLine(output, formatPlan(currentPlan, ui));
       return;
     }
     if (name === "load") {
@@ -262,8 +291,8 @@ export async function startConsole(options) {
       const file = safeRepoPath(root, argument);
       const inputPlan = JSON.parse(await fs.readFile(file, "utf8"));
       currentPlan = validatePlan(inputPlan, configuredAgents());
-      writeLine(output, `Loaded: ${path.relative(root, file)}`);
-      writeLine(output, formatPlan(currentPlan));
+      writeLine(output, `${ui.success("Loaded")}  ${path.relative(root, file)}`);
+      writeLine(output, formatPlan(currentPlan, ui));
       return;
     }
     if (name === "save") {
@@ -271,8 +300,8 @@ export async function startConsole(options) {
       const file = argument ? safeRepoPath(root, argument) : defaultPlanPath(root);
       await ensureDir(path.dirname(file));
       await writeJson(file, currentPlan);
-      writeLine(output, `Saved: ${path.relative(root, file)}`);
-      writeLine(output, "Commit the plan before /run if the repository is now dirty.");
+      writeLine(output, `${ui.success("Saved")}  ${path.relative(root, file)}`);
+      writeLine(output, ui.warning("Commit the plan before /run if the repository is now dirty."));
       return;
     }
     if (name === "preview") {
@@ -284,28 +313,28 @@ export async function startConsole(options) {
     }
     if (name === "run") {
       if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
-      writeLine(output, "Starting approved plan...");
+      writeLine(output, `${ui.info("Executing")}  Starting the approved plan...`);
       const result = await runPlanFn({
         root,
         config,
         planInput: currentPlan,
         onEvent: (event) => {
-          const message = formatEvent(event);
+          const message = formatEvent(event, ui);
           if (message) writeLine(output, message);
         },
       });
-      writeLine(output, formatManifest(result.manifest));
+      writeLine(output, formatManifest(result.manifest, ui));
       return;
     }
     if (name === "status") {
       const manifest = await loadRunFn(root, argument || undefined);
-      writeLine(output, formatManifest(manifest));
+      writeLine(output, formatManifest(manifest, ui));
       return;
     }
     if (name === "agents" || name === "doctor") {
       config = await loadConfigFn(root);
       checks = await runDoctorFn(config, root);
-      writeLine(output, formatDoctor(checks));
+      writeLine(output, `${ui.bold("Agents & runtime")}\n${formatDoctor(checks, ui)}`);
       return;
     }
     if (name === "context") {
@@ -326,13 +355,12 @@ export async function startConsole(options) {
   for await (const rawLine of rl) {
     const line = rawLine.trim();
     try {
-      if (!line) continue;
       if (line.startsWith("/")) await handleCommand(line);
-      else await propose(line);
+      else if (line) await propose(line);
     } catch (error) {
-      writeLine(output, `Error: ${error.message}`);
+      writeLine(output, `${ui.error("Error")}  ${error.message}`);
     }
     if (shouldExit) break;
-    if (interactive) rl.prompt();
+    promptUser();
   }
 }
