@@ -14,6 +14,7 @@ import {
   SidebarSimple,
   SlidersHorizontal,
   Sparkle,
+  StopCircle,
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
@@ -60,6 +61,8 @@ function eventText(event) {
   if (event.type === "task_finished")
     return `${event.task.agent}: ${event.task.status} ${event.task.id}`;
   if (event.type === "run_finished") return `Strategos: Run ${event.manifest.status}`;
+  if (event.type === "session_stopping") return "Strategos: Stopping active CLI processes";
+  if (event.type === "session_interrupted") return "Strategos: Session stopped";
   if (event.type === "session_error") return `Error: ${event.error}`;
   return event.type?.replaceAll("_", " ") || "Session updated";
 }
@@ -319,7 +322,11 @@ function SessionChat({ session, capacity, liveEvents }) {
               <time>{clock(session.updatedAt)}</time>{" "}
               {participants.length
                 ? `${participants.map((name) => name[0].toUpperCase() + name.slice(1)).join(" and ")} ${session.status === "running" ? "are running in parallel." : "were assigned to this session."}`
-                : "Planning in progress."}
+                : session.status === "planning"
+                  ? "Planning in progress."
+                  : session.status === "interrupted"
+                    ? "Session stopped before planning completed."
+                    : "Session updated."}
             </p>
             {excluded.length > 0 && (
               <p className="subtle">
@@ -328,7 +335,12 @@ function SessionChat({ session, capacity, liveEvents }) {
               </p>
             )}
             <p className={`run-state state-${session.status}`}>
-              <CheckCircle weight="fill" /> {statusLabel(session.status)}
+              {session.status === "interrupted" ? (
+                <StopCircle weight="fill" />
+              ) : (
+                <CheckCircle weight="fill" />
+              )}{" "}
+              {statusLabel(session.status)}
             </p>
           </div>
         </article>
@@ -530,9 +542,11 @@ function SettingsView({ data, onSaved }) {
   );
 }
 
-function Inspector({ session, liveEvents, isActive, onRun, onResume, onClose }) {
+function Inspector({ session, liveEvents, isActive, stopping, onRun, onResume, onStop, onClose }) {
   const [logsOpen, setLogsOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  useEffect(() => setConfirmStop(false), [session?.id]);
   const events = mergeSessionEvents(session?.events, liveEvents).slice(-5);
   const {
     activities,
@@ -580,7 +594,9 @@ function Inspector({ session, liveEvents, isActive, onRun, onResume, onClose }) 
         ))}
         {activities.length > 0 && (
           <p className="headless-note">
-            The CLI is running in the background. No separate terminal window will open.
+            {stopping
+              ? "Stopping active CLI processes…"
+              : "The CLI is running in the background. No separate terminal window will open."}
           </p>
         )}
         {!activities.length && (
@@ -626,6 +642,35 @@ function Inspector({ session, liveEvents, isActive, onRun, onResume, onClose }) 
             <button onClick={onResume}>
               <ClockCounterClockwise /> Resume
             </button>
+          )}
+          {isActive && ["planning", "previewed", "running"].includes(session.status) && (
+            <button
+              className="stop-session"
+              disabled={stopping}
+              onClick={() => setConfirmStop(true)}
+            >
+              <StopCircle weight="fill" /> {stopping ? "Stopping…" : "Stop session"}
+            </button>
+          )}
+          {confirmStop && !stopping && (
+            <div className="stop-confirmation" role="alert">
+              <p>Stop all active CLI processes? You can resume this session later.</p>
+              <div>
+                <button type="button" onClick={() => setConfirmStop(false)}>
+                  Keep running
+                </button>
+                <button
+                  type="button"
+                  className="confirm-stop"
+                  onClick={() => {
+                    setConfirmStop(false);
+                    onStop();
+                  }}
+                >
+                  Stop now
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </section>
@@ -679,6 +724,7 @@ export function App() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [switchingProject, setSwitchingProject] = useState(false);
+  const [stoppingIds, setStoppingIds] = useState([]);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const fileInput = useRef(null);
@@ -694,6 +740,7 @@ export function App() {
     const next = await api("/api/bootstrap", { projectPath });
     const firstLoad = !bootstrapped.current;
     setData(next);
+    setStoppingIds((items) => items.filter((id) => (next.activeSessionIds || []).includes(id)));
     if (firstLoad || resetMode) {
       setMode(next.executionMode || "auto");
       bootstrapped.current = true;
@@ -726,11 +773,20 @@ export function App() {
     const source = new EventSource(`/api/events/${selectedId}?project=${project}`);
     source.onmessage = (event) => {
       const parsed = JSON.parse(event.data);
-      if (parsed.type !== "connected")
+      if (!["connected", "session_inactive"].includes(parsed.type))
         setLiveEvents((items) =>
           [...items, { at: new Date().toISOString(), ...parsed }].slice(-20),
         );
-      if (["plan_ready", "session_complete", "session_error", "run_finished"].includes(parsed.type))
+      if (
+        [
+          "plan_ready",
+          "session_complete",
+          "session_error",
+          "session_interrupted",
+          "session_inactive",
+          "run_finished",
+        ].includes(parsed.type)
+      )
         refresh().catch(() => {});
     };
     return () => source.close();
@@ -843,6 +899,17 @@ export function App() {
       });
       await refresh();
     } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+  const stopSelected = async () => {
+    if (!selected || stoppingIds.includes(selected.id)) return;
+    setError("");
+    setStoppingIds((items) => [...new Set([...items, selected.id])]);
+    try {
+      await api(`/api/sessions/${selected.id}/stop`, { method: "POST", body: "{}" });
+    } catch (requestError) {
+      setStoppingIds((items) => items.filter((id) => id !== selected.id));
       setError(requestError.message);
     }
   };
@@ -1166,8 +1233,10 @@ export function App() {
             session={selected}
             liveEvents={liveEvents}
             isActive={data.activeSessionIds?.includes(selected.id)}
+            stopping={stoppingIds.includes(selected.id)}
             onRun={runSelected}
             onResume={resumeSelected}
+            onStop={stopSelected}
             onClose={() => setInspectorOpen(false)}
           />
         )}

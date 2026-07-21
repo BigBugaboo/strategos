@@ -23,14 +23,24 @@ export function runCommand(command, args = [], options = {}) {
     const child = spawn(command, args, {
       cwd,
       env,
+      detached: process.platform !== "win32",
       shell: false,
       stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
 
+    const terminate = (signal) => {
+      try {
+        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
+        else child.kill(signal);
+      } catch {
+        child.kill(signal);
+      }
+    };
+
     const abort = () => {
       aborted = true;
-      child.kill("SIGTERM");
-      forceKillTimer ||= setTimeout(() => child.kill("SIGKILL"), 5_000);
+      terminate("SIGTERM");
+      forceKillTimer ||= setTimeout(() => terminate("SIGKILL"), 5_000);
     };
 
     const finish = (result) => {
@@ -47,7 +57,7 @@ export function runCommand(command, args = [], options = {}) {
       outputBytes += Buffer.byteLength(text);
       if (outputBytes > maxOutputBytes) {
         stderr += "\nStrategos stopped the process because output exceeded the configured limit.\n";
-        child.kill("SIGTERM");
+        terminate("SIGTERM");
         return;
       }
       if (kind === "stdout") stdout += text;
@@ -71,8 +81,8 @@ export function runCommand(command, args = [], options = {}) {
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         timedOut = true;
-        child.kill("SIGTERM");
-        forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+        terminate("SIGTERM");
+        forceKillTimer = setTimeout(() => terminate("SIGKILL"), 5_000);
       }, timeoutMs);
     }
   });

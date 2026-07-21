@@ -616,6 +616,9 @@ input:focus-visible {
 .state-failed svg {
   color: #ff625e;
 }
+.state-interrupted svg {
+  color: #e8a654;
+}
 .error-banner {
   display: flex;
   align-items: flex-start;
@@ -1070,6 +1073,9 @@ kbd {
   background: #ff625e;
 }
 .session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 18px;
 }
 .session-actions button,
@@ -1088,6 +1094,33 @@ kbd {
 .settings-actions button:disabled {
   opacity: 0.55;
   cursor: wait;
+}
+.session-actions .stop-session,
+.session-actions .confirm-stop {
+  border-color: #6c3d42;
+  color: #ff8a84;
+  background: #26181e;
+}
+.session-actions .stop-session:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.stop-confirmation {
+  flex-basis: 100%;
+  padding: 11px;
+  border: 1px solid #52363d;
+  border-radius: 5px;
+  background: #1e151a;
+}
+.stop-confirmation p {
+  margin: 0 0 10px;
+  color: #bd9ca0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.stop-confirmation > div {
+  display: flex;
+  gap: 7px;
 }
 .disclosure > button {
   width: 100%;

@@ -39,7 +39,7 @@ function memorySessionStore(repository, initial = []) {
   };
 }
 
-async function fixture(t) {
+async function fixture(t, overrides = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "strategos-web-test-"));
   const secondRoot = path.join(root, "second-project");
   const webRoot = path.join(root, "dist");
@@ -97,7 +97,7 @@ async function fixture(t) {
     sessionStore,
     createSessionStoreFn: (projectRoot) => projectRoot === secondRoot ? secondSessionStore : sessionStore,
     projectRegistry,
-    planWithStrategistFn: async (input) => {
+    planWithStrategistFn: overrides.planWithStrategistFn || (async (input) => {
       planningRoots.push(input.root);
       return {
         version: 1,
@@ -111,7 +111,8 @@ async function fixture(t) {
           dependsOn: [],
         }],
       };
-    },
+    }),
+    runPlanFn: overrides.runPlanFn,
   });
   t.after(async () => {
     result.server.closeAllConnections();
@@ -191,4 +192,95 @@ test("Web planning persists the headless strategist activity", async (t) => {
   assert.equal(planning.strategist, "codex");
   assert.deepEqual(planning.workerAgents, ["claude", "codex"]);
   assert.match(planning.at, /^2026-/);
+});
+
+test("Web sessions can stop an active strategist and remain resumable", async (t) => {
+  let abortObserved = false;
+  const { url } = await fixture(t, {
+    planWithStrategistFn: async ({ signal }) => new Promise((resolve, reject) => {
+      const stop = () => {
+        abortObserved = true;
+        reject(new Error("planner aborted"));
+      };
+      if (signal.aborted) stop();
+      else signal.addEventListener("abort", stop, { once: true });
+    }),
+  });
+  const response = await fetch(`${url}/api/goals`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ goal: "Stop this planning session", executionMode: "manual" }),
+  });
+  const created = await response.json();
+  const stopped = await fetch(`${url}/api/sessions/${created.id}/stop`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(stopped.status, 202);
+
+  let session;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await fetch(`${url}/api/sessions/${created.id}`);
+    session = await current.json();
+    if (session.status === "interrupted") break;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const bootstrap = await (await fetch(`${url}/api/bootstrap`)).json();
+  assert.equal(abortObserved, true);
+  assert.equal(session.status, "interrupted");
+  assert.equal(session.error, null);
+  assert.equal(bootstrap.activeSessionIds.includes(created.id), false);
+});
+
+test("Web sessions can stop active worker execution", async (t) => {
+  let workerAbortObserved = false;
+  const { url } = await fixture(t, {
+    runPlanFn: async ({ signal, onEvent }) => {
+      await onEvent({
+        type: "task_started",
+        task: { id: "review", agent: "codex", mode: "read-only" },
+      });
+      await new Promise((resolve) => {
+        const stop = () => {
+          workerAbortObserved = true;
+          resolve();
+        };
+        if (signal.aborted) stop();
+        else signal.addEventListener("abort", stop, { once: true });
+      });
+      return {
+        runId: "run-interrupted",
+        manifest: { status: "interrupted", tasks: {} },
+      };
+    },
+  });
+  const response = await fetch(`${url}/api/goals`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ goal: "Stop active workers", executionMode: "auto" }),
+  });
+  const created = await response.json();
+  let running = false;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await (await fetch(`${url}/api/sessions/${created.id}`)).json();
+    if (current.status === "running") {
+      running = true;
+      break;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(running, true);
+  const stopped = await fetch(`${url}/api/sessions/${created.id}/stop`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(stopped.status, 202);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await (await fetch(`${url}/api/sessions/${created.id}`)).json();
+    if (current.status === "interrupted") break;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(workerAbortObserved, true);
 });
