@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/assets/strategos-icon.png" alt="Strategos brand icon" width="128" height="128" />
-</p>
-
 # Strategos
 
 **A local-first strategist for Claude Code, Codex CLI, and GitHub Copilot CLI.**
@@ -17,7 +13,7 @@ remain inspectable on your machine.
 [简体中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="docs/assets/strategos-hero.jpg" alt="A development goal becomes a validated task graph, three isolated agent worktrees, and a human-reviewed result." />
+  <img src="docs/assets/strategos-social-preview.jpg" alt="Strategos turns a development goal into three isolated agent worktrees, durable recovery context, and a human-reviewed result." />
 </p>
 
 <p align="center"><em>One goal → validated plan → parallel worktrees → human review.</em></p>
