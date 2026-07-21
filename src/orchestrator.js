@@ -142,9 +142,9 @@ export async function runPlan({
   maxParallel,
   onEvent = () => {},
 }) {
-  const emit = (event) => {
+  const emit = async (event) => {
     try {
-      onEvent(event);
+      await onEvent(event);
     } catch {
       // Progress rendering must never interrupt orchestration.
     }
@@ -188,7 +188,7 @@ export async function runPlan({
   const pending = new Map(plan.tasks.map((task) => [task.id, task]));
   let runMemory = await readOptional(path.join(root, ".strategos", "memory.md"));
   await saveManifest(manifestFile, manifest, results, root);
-  emit({ type: "run_started", runId, goal: plan.goal });
+  await emit({ type: "run_started", runId, goal: plan.goal });
 
   while (pending.size > 0) {
     for (const task of [...pending.values()]) {
@@ -208,7 +208,7 @@ export async function runPlan({
         };
         results.set(task.id, skipped);
         pending.delete(task.id);
-        emit({ type: "task_skipped", task: skipped });
+        await emit({ type: "task_skipped", task: skipped });
       }
     }
 
@@ -222,19 +222,19 @@ export async function runPlan({
 
     const prepared = [];
     for (const task of ready) {
-      emit({ type: "task_preparing", task });
+      await emit({ type: "task_preparing", task });
       prepared.push(
         await prepareTask({ root, config, plan, task, runId, runDir, results, runMemory }),
       );
       pending.delete(task.id);
     }
     for (const task of prepared) {
-      if (task.status !== "failed") emit({ type: "task_started", task });
+      if (task.status !== "failed") await emit({ type: "task_started", task });
     }
     const batch = await Promise.all(prepared.map((task) => executePreparedTask(task, config)));
     for (const result of batch) {
       results.set(result.id, result);
-      emit({ type: "task_finished", task: result });
+      await emit({ type: "task_finished", task: result });
       const summary = result.report
         ? truncateText(result.report, 4_000)
         : result.error || "No report returned.";
@@ -249,7 +249,7 @@ export async function runPlan({
     : "failed";
   manifest.finishedAt = new Date().toISOString();
   await saveManifest(manifestFile, manifest, results, root);
-  emit({ type: "run_finished", runId, manifest });
+  await emit({ type: "run_finished", runId, manifest });
   return { dryRun: false, runId, manifest, results };
 }
 

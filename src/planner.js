@@ -97,7 +97,14 @@ export function extractPlanJson(output) {
   throw new Error("strategist did not return a valid JSON plan");
 }
 
-export function buildStrategistPrompt({ goal, strategist, workerAgents, sharedContext, maxTasks }) {
+export function buildStrategistPrompt({
+  goal,
+  strategist,
+  workerAgents,
+  sharedContext,
+  resumeContext,
+  maxTasks,
+}) {
   const capabilities = workerAgents
     .map((agent) => {
       const role = agent === strategist ? "; also the strategist for this planning call" : "";
@@ -110,6 +117,9 @@ export function buildStrategistPrompt({ goal, strategist, workerAgents, sharedCo
   const participationPolicy = hybrid
     ? `This session uses hybrid participation. After returning the plan, ${strategist}\nmay also execute assigned worker tasks. When another worker is available, keep\nthe final independent review or audit assigned to a different agent.`
     : `This session uses separated participation. ${strategist} plans only and\nmust not receive a worker task.`;
+  const recovery = resumeContext
+    ? `## Recovery context\n\nThis goal is resuming a previous Strategos session. Inspect the current\nrepository state and use the saved context below as evidence. Account for work\nthat already succeeded or changed the repository. Produce tasks only for\nremaining work and verification; do not blindly repeat completed tasks.\n\n${resumeContext}\n\n`
+    : "";
 
   return `# Strategos planning assignment
 
@@ -127,7 +137,7 @@ ${capabilities}
 
 ${participationPolicy}
 
-Use only the worker names above. Create no more than ${maxTasks} tasks. Keep
+${recovery}Use only the worker names above. Create no more than ${maxTasks} tasks. Keep
 write tasks independent when they can run safely in separate Git worktrees,
 and make integration or review tasks depend on the work they inspect. Do not
 assign overlapping write ownership to parallel tasks. Copilot must remain
@@ -185,6 +195,7 @@ export async function planWithStrategist(options) {
     strategist,
     workerAgents,
     sharedContext,
+    resumeContext: options.resumeContext,
     maxTasks,
   });
   let schemaDirectory;

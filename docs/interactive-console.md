@@ -17,7 +17,7 @@ development goal.
 
 ## Planning and execution
 
-The `0.7.x` console delegates planning to one installed agent CLI instead of
+The `0.8.x` console delegates planning to one installed agent CLI instead of
 embedding a model provider:
 
 1. The configured strategist, `codex` by default, is invoked immediately in
@@ -75,6 +75,33 @@ Use `/mode auto` or `/mode manual` to change the current console session. The
 setting applies to newly entered goals and does not automatically execute an
 already loaded or previously generated plan.
 
+## Recovery and resume
+
+Every goal creates a durable, repository-local session journal. Strategos
+checkpoints the original goal, selected strategist and workers, generated plan,
+preview state, run ID, bounded execution events, task reports, final manifest,
+and the latest error. Writes are atomic so a partially written checkpoint does
+not replace the last valid state.
+
+Session files live under `.git/strategos/sessions/`, outside the tracked working
+tree. They do not require a `.gitignore` rule and cannot make an otherwise clean
+repository fail the execution gate. They remain local and are never sent
+anywhere except as bounded prompt context to the installed strategist CLI when
+the user explicitly resumes a session.
+
+At startup, the console identifies the newest planning, planned, previewed,
+running, failed, or interrupted session and displays a recovery hint. Use
+`/resume` for that session or `/resume <id>` for one shown by `/sessions`.
+Strategos invokes the selected strategist again in read-only mode with the
+saved context and current repository. The recovery prompt requires it to
+account for completed work and produce only remaining tasks and verification.
+The active `auto` or `manual` execution mode then applies normally.
+
+Entering an unrelated new goal marks the previously offered session as
+`abandoned`, preventing repeated startup prompts. It remains inspectable in
+`/sessions` and can still be resumed explicitly by ID. Successfully completed
+sessions also remain inspectable but are never offered for recovery.
+
 ## Commands
 
 | Command | Purpose |
@@ -88,6 +115,8 @@ already loaded or previously generated plan.
 | `/preview` | Validate the current plan and show waves without changing the repository. |
 | `/run` | Execute the current plan explicitly. Primarily used in manual mode or after `/load`. |
 | `/status [id]` | Show a specific run, or the latest run when no ID is provided. |
+| `/sessions` | List the ten most recent durable sessions, including completed and abandoned sessions. |
+| `/resume [id]` | Re-plan and continue the latest resumable session, or a selected session ID. |
 | `/agents` | Re-run environment and agent CLI health checks. |
 | `/context` | List the shared context files currently present. |
 | `/init` | Initialize Strategos without overwriting existing files. |
@@ -138,8 +167,9 @@ starts until the repository is clean and the goal is entered again.
 
 ## Current boundaries
 
-- Each goal starts a fresh non-interactive strategist call; native CLI chat
-  history is not imported or shared.
+- Each goal or recovery attempt starts a fresh non-interactive strategist call.
+  Native vendor chat history is not imported; recovery uses the provider-neutral
+  Strategos journal instead.
 - Worker tasks cannot yet be cancelled from the console after execution starts.
   Pressing `Ctrl+C` during execution reports this limitation and keeps the
   console attached until the run finishes.
