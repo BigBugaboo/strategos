@@ -20,6 +20,15 @@ npm ci
 npm run verify
 ```
 
+`npm ci` enables the repository-managed hooks in `.githooks` when no custom
+`core.hooksPath` is configured. The pre-commit hook runs the fast syntax checks;
+the pre-push hook runs the complete verification suite. Confirm the active path
+with `git config --local --get core.hooksPath`. Existing custom hook paths are
+preserved; use `npm run hooks:install -- --force` only when you intentionally
+want to replace one. Set `STRATEGOS_SKIP_HOOKS=1` during installation to opt out.
+Git's `--no-verify` remains available for exceptional local recovery, but pull
+requests must still pass CI.
+
 Run the CLI directly while developing:
 
 ```bash
