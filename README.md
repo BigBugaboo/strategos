@@ -12,6 +12,12 @@ remain inspectable on your machine.
 
 [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="docs/assets/strategos-hero.jpg" alt="A development goal becomes a validated task graph, three isolated agent worktrees, and a human-reviewed result." />
+</p>
+
+<p align="center"><em>One goal → validated plan → parallel worktrees → human review.</em></p>
+
 ## Why
 
 Running three coding agents in three terminals is easy. Keeping them aligned is
@@ -32,6 +38,26 @@ Strategos provides a small neutral layer:
 - **Defensive completion checks**: exit code zero without a report is treated as
   failure because some older agent CLIs return success after provider errors.
 - **Human-controlled integration**: review and merge the branches you want.
+
+## How it works
+
+```mermaid
+flowchart LR
+    G["Development goal"] --> S["Read-only strategist"]
+    C["Repository context"] --> S
+    S --> P["Validated task graph"]
+    P --> A["Claude task<br/>worktree A"]
+    P --> B["Codex task<br/>worktree B"]
+    P --> D["Copilot task<br/>worktree C"]
+    A --> E["Reports, logs<br/>& branches"]
+    B --> E
+    D --> E
+    E --> H["Human review<br/>& integration"]
+```
+
+Ready tasks run in parallel; dependent tasks wait for upstream reports. Every
+worker stays isolated in its own branch and worktree until you decide what to
+integrate.
 
 ## Quick start
 
