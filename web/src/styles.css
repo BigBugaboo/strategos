@@ -85,14 +85,13 @@ input:focus-visible {
 }
 .topbar {
   display: grid;
-  grid-template-columns: minmax(420px, 45%) minmax(640px, 55%);
+  grid-template-columns: 22% minmax(640px, 1fr);
   align-items: center;
   border-bottom: 1px solid var(--line);
   background: rgba(7, 14, 22, 0.8);
   padding: 0 26px;
 }
 .brand {
-  position: relative;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -104,64 +103,25 @@ input:focus-visible {
   border-radius: 9px;
   box-shadow: 0 0 0 1px #334051;
 }
-.project-picker {
-  position: relative;
-  min-width: 0;
-}
-.project-select-row {
+.brand > div {
   display: flex;
   align-items: center;
-  gap: 7px;
+  min-width: 0;
+  gap: 8px;
 }
-.project-select-row > svg {
-  width: 17px;
-  height: 17px;
-  flex: 0 0 auto;
-  color: #8995a5;
-}
-.project-select-row select {
-  max-width: 220px;
-  padding: 2px 24px 2px 0;
-  border: 0;
+.brand strong {
   color: #eef1f6;
-  background: transparent;
   font-size: 15px;
   font-weight: 600;
-  cursor: pointer;
 }
-.project-select-row button {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
+.brand span {
   color: #8f9aaa;
-  background: transparent;
-  cursor: pointer;
-}
-.project-select-row button:hover {
-  color: #edf0f5;
-  background: #182432;
-}
-.project-select-row button svg {
-  width: 18px;
-  height: 18px;
-}
-.project-picker > span {
-  display: block;
-  max-width: 310px;
-  color: var(--muted);
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 11px;
 }
 .project-popover {
   position: absolute;
   z-index: 20;
-  top: calc(100% + 12px);
+  top: 34px;
   left: 0;
   width: min(420px, calc(100vw - 40px));
   padding: 15px;
@@ -299,6 +259,17 @@ input:focus-visible {
   width: 21px;
   height: 21px;
 }
+.projects-panel {
+  position: relative;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.sidebar-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 8px 8px;
+}
 .history {
   min-height: 0;
   display: flex;
@@ -306,11 +277,94 @@ input:focus-visible {
   flex-direction: column;
   padding-top: 17px;
 }
+.sidebar-section-heading h2,
 .history h2 {
   margin: 0 8px 10px;
   color: #aeb6c1;
   font-size: 12px;
   font-weight: 600;
+}
+.sidebar-section-heading h2 {
+  margin: 0;
+}
+.project-add {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 4px;
+  color: #8f9aaa;
+}
+.project-add:hover {
+  color: #edf0f5;
+  background: #182432;
+}
+.project-add svg {
+  width: 17px;
+  height: 17px;
+}
+.project-list {
+  max-height: 145px;
+  display: grid;
+  gap: 2px;
+  overflow-y: auto;
+}
+.project-list > button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 9px;
+  border-radius: 4px;
+  color: #9da7b5;
+  text-align: left;
+}
+.project-list > button:hover {
+  color: #e7ebf0;
+  background: #131f2c;
+}
+.project-list > button.selected {
+  color: #f0f2f5;
+  background: #202c39;
+}
+.project-list > button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.project-list svg {
+  width: 17px;
+  height: 17px;
+  color: #8490a0;
+}
+.project-list > button.selected svg {
+  color: #9b88ff;
+}
+.project-list span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.project-list strong,
+.project-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-list strong {
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.project-list small {
+  color: #717d8c;
+  font-size: 10px;
+}
+.project-list > button.selected small {
+  color: #929dab;
+}
+.project-compact {
+  display: none;
 }
 .history-list {
   min-height: 0;
@@ -1006,7 +1060,7 @@ input:focus-visible {
     display: none;
   }
   .topbar {
-    grid-template-columns: 300px 1fr;
+    grid-template-columns: 210px 1fr;
   }
   .quota-strip {
     gap: 20px;
@@ -1051,11 +1105,39 @@ input:focus-visible {
     bottom: 12px;
     left: 12px;
   }
-  .project-picker > span {
+  .projects-panel {
+    padding: 12px 0;
+  }
+  .sidebar-section-heading,
+  .project-list {
     display: none;
   }
-  .project-select-row select {
-    max-width: 180px;
+  .project-compact {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: 40px;
+  }
+  .project-compact > svg {
+    width: 21px;
+    height: 21px;
+    color: #aab4c0;
+    pointer-events: none;
+  }
+  .project-compact select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    cursor: pointer;
+    opacity: 0;
+  }
+  .project-compact button {
+    display: none;
+  }
+  .project-popover {
+    position: fixed;
+    top: 88px;
+    left: 76px;
   }
   .quota-label {
     display: grid;

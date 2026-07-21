@@ -103,8 +103,42 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
   };
 
   return (
-    <div className="project-picker">
-      <div className="project-select-row">
+    <section className="projects-panel">
+      <div className="sidebar-section-heading">
+        <h2>Projects</h2>
+        <button
+          className="project-add"
+          type="button"
+          aria-label="Add local project"
+          title="Add local project"
+          onClick={() => {
+            setAdding((value) => !value);
+            setMessage("");
+          }}
+        >
+          <PlusSquare />
+        </button>
+      </div>
+      <div className="project-list" aria-label="Projects">
+        {projects.map((project) => (
+          <button
+            type="button"
+            key={project.path}
+            className={project.path === repository.path ? "selected" : ""}
+            aria-pressed={project.path === repository.path}
+            disabled={disabled}
+            onClick={() => void onSelect(project.path).catch(() => {})}
+            title={project.path}
+          >
+            <FolderOpen weight={project.path === repository.path ? "fill" : "regular"} />
+            <span>
+              <strong>{project.name}</strong>
+              <small>{shortPath(project.path)}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="project-compact">
         <FolderOpen />
         <select
           aria-label="Current project"
@@ -130,7 +164,6 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
           <PlusSquare />
         </button>
       </div>
-      <span title={repository.path}>{shortPath(repository.path)}</span>
       {adding && (
         <form className="project-popover" onSubmit={addProject}>
           <label htmlFor="project-path">Local Git repository path</label>
@@ -152,7 +185,7 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
           </div>
         </form>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -759,13 +792,10 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
-          <ProjectPicker
-            repository={data.repository}
-            projects={data.projects}
-            disabled={switchingProject}
-            onSelect={selectProject}
-            onAdd={addProject}
-          />
+          <div>
+            <strong>Strategos</strong>
+            <span>v{data.version}</span>
+          </div>
         </div>
         <div className="quota-strip">
           {data.capacity.map((agent) => (
@@ -801,8 +831,15 @@ export function App() {
               Settings
             </button>
           </nav>
+          <ProjectPicker
+            repository={data.repository}
+            projects={data.projects}
+            disabled={switchingProject}
+            onSelect={selectProject}
+            onAdd={addProject}
+          />
           <div className="history">
-            <h2>History</h2>
+            <h2>Sessions</h2>
             <div className="history-list">
               {data.sessions.length ? (
                 data.sessions.slice(0, 9).map((session) => (

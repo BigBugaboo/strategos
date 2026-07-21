@@ -30,9 +30,12 @@ saved sessions opens in the empty New task state.
 ## Project context
 
 The repository used to start `strategos web` is the initial project. Use the
-project selector in the header to add another local path. Strategos resolves the
-path to its Git root, rejects paths outside an accessible Git repository, and
-stores the local project list in `~/.strategos/projects.json`.
+Projects section in the left sidebar to add or switch local paths. Projects and
+Sessions are sibling navigation sections, matching the task-oriented hierarchy
+of modern coding-agent clients; the header is reserved for product identity and
+global CLI capacity. Strategos resolves each path to its Git root, rejects paths
+outside an accessible Git repository, and stores the local project list in
+`~/.strategos/projects.json`.
 
 Every Web request carries the selected project path. Configuration, durable
 sessions, attachments, repository context collection, strategist planning,

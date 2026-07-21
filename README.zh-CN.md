@@ -150,9 +150,10 @@ strategos web
 正式页面不会注入演示数据，而是直接读取当前仓库以及本地持久化的 Strategos
 Session；没有历史任务时会显示干净的新任务页面。
 
-通过 Strategos 图标旁的项目选择器，可以添加或切换本地 Git 仓库。所选路径
-会同时限定配置、Session、附件、AI 仓库上下文、规划和 Worker 执行；项目列表
-只保存在本机的 `~/.strategos/projects.json`。
+通过左侧栏的 Projects 区域，可以添加或切换本地 Git 仓库。Projects 与
+Sessions 位于同一导航层级，顶部只保留全局 CLI 额度。所选路径会同时限定配置、
+Session、附件、AI 仓库上下文、规划和 Worker 执行；项目列表只保存在本机的
+`~/.strategos/projects.json`。
 
 顶部额度条来自 Settings 中手工维护的最新状态。Claude、Codex、Copilot
 目前没有统一、稳定、可机器读取的额度接口，因此 Strategos 不会虚构精确

@@ -3,68 +3,66 @@
 ## Evidence
 
 - Source visual truth: `/var/folders/s4/zvr523712rzcdfswttvppw400000gn/T/codex-clipboard-9306b709-660a-4302-b4db-c961d57a6ba7.png`
-- Browser-rendered implementation: `/tmp/strategos-real-empty-final.png`
-- Full-view comparison: `/tmp/strategos-real-comparison.png`
-- Focused top-bar comparison: `/tmp/strategos-real-comparison-top.png`
-- Responsive evidence: `/tmp/strategos-real-mobile.png`
-- URL and state: `http://127.0.0.1:4310/`, real repository data with no saved sessions and all three installed CLIs reporting unknown manually recorded capacity
-- Comparison viewport: `1280 × 720` CSS pixels, plus responsive verification at `390 × 844`; the supplied source shows a populated running state while this pass intentionally verifies the production empty state
+- Browser-rendered implementation: `/tmp/strategos-project-hierarchy-final-desktop.png`
+- Responsive implementation: `/tmp/strategos-project-hierarchy-final-mobile.png`
+- Before-state evidence: `/tmp/strategos-project-hierarchy-before.png`
+- URL and state: `http://127.0.0.1:4310/`, production Web UI using registered local projects, no seeded sessions, and all three installed CLIs reporting `Unknown` capacity
+- Desktop comparison viewport: `1814 × 1334` CSS pixels, matching the supplied source dimensions
+- Responsive verification viewport: `720 × 900` CSS pixels
+- Full-view comparison evidence: the source and final desktop screenshots were opened together in one comparison pass
+- Focused region comparison: no separate crop was needed because the complete Projects and Sessions hierarchy is fully readable in the left rail of the desktop evidence; the responsive evidence separately verifies the compact project control
 
 ## Findings
 
-No actionable P0, P1, or P2 differences remain.
+No actionable P0, P1, or P2 differences remain for the requested hierarchy change.
 
-- Fonts and typography: the implementation uses the native system sans-serif stack with weights, muted small-text hierarchy, truncation, and line-height close to the reference. Dynamic dates follow the browser locale, so the Chinese test environment renders month/day text differently from the English mock; this is acceptable localized content rather than structural drift.
-- Spacing and layout rhythm: the final desktop grid uses approximately `22% / 51% / 27%` for navigation, chat, and inspector, matching the reference's visual balance. Thin dividers, compact rows, bottom composer, and low-radius controls preserve the target density.
-- Colors and tokens: graphite/navy surfaces, subdued separators, cyan Claude, violet Codex, green status, and red exhausted-quota states map cleanly to the source. Contrast remains readable without turning the interface into a card grid.
-- Image quality and asset fidelity: the repository's actual Strategos PNG is used for the brand and assistant avatar. Phosphor supplies the interface icons; no emoji, handcrafted SVG, CSS drawing, placeholder product imagery, or fake logo is present.
-- Copy and content: the empty state contains only current repository data and honest `Unknown` quota labels. The missing history, plan, worker, output, and changed-file content is intentional because no local sessions exist; no reference copy is used as runtime data.
-- Icons and controls: navigation, attachment, mode, send, disclosure, status, Run, and Resume affordances use one icon family and consistent optical sizing.
-- Accessibility and responsiveness: controls are semantic and keyboard-focusable; settings selects have explicit accessible names; the image has alt text; desktop has no clipped persistent controls. Tablet `1024 × 768` hides the inspector with no horizontal overflow. Mobile `390 × 844` collapses navigation labels and the inspector, retains the composer, and reports `scrollWidth === innerWidth === 390`.
+- Fonts and typography: Projects and Sessions use the same compact heading scale, row density, truncation, and system-font hierarchy. The selected project has a stronger title without competing with the global Strategos brand.
+- Spacing and layout rhythm: project selection no longer consumes the product header. Projects and Sessions are sibling sections in the left rail, separated with the same thin dividers and compact vertical rhythm used by the existing navigation.
+- Colors and visual tokens: the existing graphite/navy surfaces, muted paths, violet selected-project icon, selected-row fill, and low-contrast separators remain consistent with the selected Codex-style shell.
+- Image quality and asset fidelity: the existing Strategos PNG remains the only brand image. Project, navigation, and action icons continue to use Phosphor; no emoji, handcrafted SVG, CSS art, or placeholder asset was introduced.
+- Copy and content: the global header now contains only `Strategos`, its version, and provider capacity. `Projects` and `Sessions` accurately describe the two sibling navigation collections.
+- Accessibility: every project is a semantic button, the active project exposes `aria-pressed`, the add-project flow has a labeled input, focus outlines remain visible, and the compact narrow-screen control is a labeled native select.
+- Responsiveness: at `720 × 900`, the left rail collapses to icons and exposes the active project through the compact native selector. Browser measurements confirmed `scrollWidth === innerWidth === 720`, with the composer and all quota tracks remaining visible.
 
 ## Comparison history
 
 ### Iteration 1
 
-- Earlier P2: the initial implementation made the center column too dominant and compressed both side rails compared with the selected mock.
-- Fix: changed the desktop workspace tracks to `22% minmax(520px, 1fr) 27%` and the top-bar split to `45% / 55%`.
-- Post-fix evidence: `/tmp/strategos-comparison-approved.jpg` and `/tmp/strategos-focus-workspace.jpg` show the three regions, header quota strip, composer, and inspector at the intended balance.
+- Earlier P1: the project selector lived beside the product logo, which made repository context look like a global application setting and gave it more hierarchy than Session history.
+- Fix: reduced the header to product identity plus CLI capacity and moved registered repositories into a dedicated Projects section immediately above Sessions.
+- Post-fix evidence: `/tmp/strategos-project-hierarchy-after-1.png` shows both navigation collections as sibling sections.
 
 ### Iteration 2
 
-- Earlier P2: the quota strip's minimum track width caused 30 pixels of horizontal overflow at a `390` pixel mobile viewport and pushed the composer beyond the right edge.
-- Fix: the mobile quota tracks now use `repeat(3, minmax(0, 1fr))` with a bounded width.
-- Post-fix evidence: browser measurements show a `390` pixel viewport, `390` pixel document width, and a composer bounded from `80` to `378` pixels.
+- Earlier P2: moving project selection entirely into the desktop rail could have removed access at the existing narrow breakpoint, where Session history is hidden.
+- Fix: added a compact folder control backed by the same native project select below `740` pixels.
+- Post-fix evidence: `/tmp/strategos-project-hierarchy-final-mobile.png` and the `720` pixel browser measurement show a usable project switcher with no horizontal overflow.
 
 ### Iteration 3
 
-- Earlier P1: when no provider was exhausted, the optional capacity notice was absent but the shell still reserved its grid row. The workspace collapsed to `38` pixels and placed the composer over the header.
-- Fix: the shell now uses a two-row layout by default and adds the third notice row only when an exhausted-provider notice is rendered. The app surface also uses a definite viewport height so the empty state fills the page.
-- Post-fix evidence: `/tmp/strategos-real-empty-final.png` shows the composer anchored at the bottom, full-height navigation and inspector, and an unclipped center empty state.
+- Earlier P2: visual selection alone did not expose the active project to assistive technology.
+- Fix: added `aria-pressed` to project rows and verified the selected row is announced as pressed.
+- Post-fix evidence: the final browser snapshot marks `workspace-prod-tracking` as pressed while preserving its visible selected state.
 
 ## Primary interactions tested
 
-- Load `/api/bootstrap` through the production page and confirm it renders the actual `strategos` repository, three installed CLIs, unknown capacity, zero sessions, and zero active runs.
-- Open Settings, save the current real configuration through `/api/settings`, and confirm the success state after the health checks complete.
-- Open Runs and confirm the real zero-session state instead of seeded history.
-- Return to New task and confirm the composer, attachment control, and Auto/Manual control remain available without creating a synthetic task.
-- Verify the `390 × 844` mobile viewport has no horizontal overflow and retains the composer.
-- Confirm the browser console contains no warnings or errors.
+- Loaded the production page and confirmed Strategos `v0.14.0`, all three capacity indicators, registered projects, and the real empty Session state.
+- Switched from `strategos` to `workspace-prod-tracking` from the desktop project list and confirmed the selected project state after the scoped bootstrap request completed.
+- Opened and cancelled the Add local project form without persisting test data.
+- Switched projects through the compact native selector at the responsive breakpoint.
+- Confirmed the browser console contains no warnings or errors.
 
 ## Follow-up polish
 
-- P3: a future release could expose an explicit locale preference for timestamps instead of relying on the browser locale.
-- P3: provider-specific quota adapters can progressively replace manual percentages while retaining `Unknown` as the honest fallback.
+- P3: a future compact layout could add a small project tooltip so the current repository name is visible before opening the native selector.
 
 ## Implementation checklist
 
-- [x] Match the selected dark three-column composition.
-- [x] Reuse the actual Strategos image asset and a consistent icon library.
-- [x] Keep exhausted providers visible but excluded from scheduling.
-- [x] Make navigation, sessions, settings, composer, Auto/Manual, Run, Resume, and attachments functional.
-- [x] Verify desktop, tablet, and mobile overflow behavior.
-- [x] Run Vite+ format, lint, type, unit-test, and build checks.
-- [x] Remove all runtime demo fixtures and fabricated task labels.
-- [x] Verify the production zero-session state against the local API.
+- [x] Move project selection out of the product header.
+- [x] Present Projects and Sessions as sibling left-navigation sections.
+- [x] Keep real project switching and add-project behavior functional.
+- [x] Expose the selected project semantically.
+- [x] Preserve a compact project switcher at the narrow breakpoint.
+- [x] Verify Vite+ checks, tests, production build, browser interactions, responsive overflow, and console output.
 
 final result: passed
