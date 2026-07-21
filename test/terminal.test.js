@@ -13,7 +13,7 @@ const checks = [
 test("renders a compact colored welcome surface for interactive terminals", () => {
   const ui = createTerminalUi({ interactive: true, columns: 96, env: { TERM: "xterm-256color" } });
   const output = renderWelcome(ui, {
-    version: "0.5.0",
+    version: "0.6.0",
     root: "/tmp/example-repository",
     strategist: "codex",
     checks,
@@ -22,7 +22,7 @@ test("renders a compact colored welcome surface for interactive terminals", () =
 
   assert.equal(ui.color, true);
   assert.match(output, /\u001b\[/);
-  assert.match(plain, /STRATEGOS v0\.5\.0/);
+  assert.match(plain, /STRATEGOS v0\.6\.0/);
   assert.match(plain, /Multi-agent strategy console · codex plans/);
   assert.match(plain, /Agents\s+● claude\s+·\s+● codex\s+·\s+● copilot/);
   assert.match(plain, /Runtime Node v24\.18\.0 · Git 2\.55\.0/);
@@ -51,7 +51,7 @@ test("expands unavailable tools into actionable startup warnings", () => {
   const ui = createTerminalUi({ interactive: true, columns: 80, env: { TERM: "xterm" } });
   const output = stripAnsi(
     renderWelcome(ui, {
-      version: "0.5.0",
+      version: "0.6.0",
       root: "/tmp/example-repository",
       strategist: "codex",
       checks: checks.map((check) =>

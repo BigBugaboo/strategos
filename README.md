@@ -24,6 +24,8 @@ Strategos provides a small neutral layer:
   task-specific files, and completed dependency reports.
 - **CLI-generated task graph** produced by one read-only strategist CLI, then
   schema-checked and shown before worker execution.
+- **Hybrid participation by default** so the strategist joins the healthy
+  worker pool after planning; strict role separation remains configurable.
 - **Parallel waves** capped by a configurable concurrency limit.
 - **Worktree isolation** for every task, including independent branches.
 - **Provider adapters** for `claude`, `codex`, and `copilot` commands already
@@ -60,7 +62,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.5.0
+STRATEGOS v0.6.0
 Multi-agent strategy console · codex plans
 ~/path/to/your/repository
 
@@ -80,11 +82,12 @@ Flow  1 implementation  →  2 review
 ```
 
 Ordinary text immediately asks the configured strategist CLI to inspect the
-repository in read-only mode and return a JSON task graph for the other healthy
-agent CLIs. Strategos uses no model SDK, API key, or embedded AI provider. It
-validates and displays the plan, but creates no worker worktree and starts no
-worker until the user enters `/run`. Press `Ctrl+C` to cancel a slow planning
-call. Useful console commands include:
+repository in read-only mode and return a JSON task graph. In the default
+`hybrid` mode, every healthy agent CLI—including the strategist—may receive
+worker tasks after planning. Strategos uses no model SDK, API key, or embedded
+AI provider. It validates and displays the plan, but creates no worker worktree
+and starts no worker until the user enters `/run`. Press `Ctrl+C` to cancel a
+slow planning call. Useful console commands include:
 
 ```text
 /new [goal]   /strategist [agent]  /plan       /load <file>

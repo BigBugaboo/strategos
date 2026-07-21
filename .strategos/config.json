@@ -1,6 +1,7 @@
 {
   "maxParallel": 3,
   "strategist": "codex",
+  "workerMode": "hybrid",
   "planningTimeoutMinutes": 5,
   "maxPlanningTasks": 12,
   "baseRef": "HEAD",
