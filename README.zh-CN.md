@@ -79,7 +79,7 @@ strategos
 ```
 
 ```text
-STRATEGOS v0.9.1
+STRATEGOS v0.9.2
 Multi-agent strategy console · codex plans
 ~/你的/项目目录
 

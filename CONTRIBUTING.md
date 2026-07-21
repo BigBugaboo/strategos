@@ -59,6 +59,12 @@ and update `COMPATIBILITY.md` in the same pull request. Upgrade behavior must
 remain non-destructive for source checkouts, npm links, npx caches, and
 project-local installations.
 
+Pull requests that publish a new version must update both `package.json` and
+`package-lock.json`. After the pull request is merged into the default branch,
+the release workflow verifies the merged commit and creates the matching
+`v<version>` GitHub Release when it does not already exist. See
+[docs/releasing.md](docs/releasing.md) for versioning, retry, and tag ownership.
+
 Interactive changes must preserve the explicit `/run` approval boundary and
 keep every existing non-interactive subcommand suitable for scripts and CI.
 Strategist calls must remain read-only, use existing CLI authentication, and
