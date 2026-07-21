@@ -92,6 +92,7 @@ input:focus-visible {
   padding: 0 26px;
 }
 .brand {
+  position: relative;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -103,17 +104,111 @@ input:focus-visible {
   border-radius: 9px;
   box-shadow: 0 0 0 1px #334051;
 }
-.brand strong {
-  color: #eef1f6;
-  font-size: 15px;
-  white-space: nowrap;
+.project-picker {
+  position: relative;
+  min-width: 0;
 }
-.brand span {
+.project-select-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.project-select-row > svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  color: #8995a5;
+}
+.project-select-row select {
+  max-width: 220px;
+  padding: 2px 24px 2px 0;
+  border: 0;
+  color: #eef1f6;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.project-select-row button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: #8f9aaa;
+  background: transparent;
+  cursor: pointer;
+}
+.project-select-row button:hover {
+  color: #edf0f5;
+  background: #182432;
+}
+.project-select-row button svg {
+  width: 18px;
+  height: 18px;
+}
+.project-picker > span {
+  display: block;
+  max-width: 310px;
   color: var(--muted);
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.project-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 12px);
+  left: 0;
+  width: min(420px, calc(100vw - 40px));
+  padding: 15px;
+  border: 1px solid #334253;
+  border-radius: 7px;
+  background: #101b28;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
+}
+.project-popover label {
+  display: block;
+  margin-bottom: 8px;
+  color: #c4cbd5;
+  font-size: 12px;
+  font-weight: 600;
+}
+.project-popover input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #3a4859;
+  border-radius: 5px;
+  color: #edf0f5;
+  background: #0b141f;
+  font-size: 12px;
+}
+.project-popover p {
+  margin: 8px 0 0;
+  color: #ff7772;
+  font-size: 11px;
+}
+.project-popover > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.project-popover > div button {
+  min-width: 80px;
+  height: 32px;
+  border: 1px solid #3b4858;
+  border-radius: 5px;
+  background: #152231;
+  cursor: pointer;
+}
+.project-popover > div button[type="submit"] {
+  border-color: #7568d8;
+  background: #6658c7;
 }
 .quota-strip {
   display: grid;
@@ -956,8 +1051,11 @@ input:focus-visible {
     bottom: 12px;
     left: 12px;
   }
-  .brand span {
+  .project-picker > span {
     display: none;
+  }
+  .project-select-row select {
+    max-width: 180px;
   }
   .quota-label {
     display: grid;
