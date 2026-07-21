@@ -4,23 +4,23 @@ Strategos can be invoked from several Node.js installation environments. Its
 upgrade flow detects the active package location before changing anything, so
 an update does not silently replace a source checkout or development link.
 
-## Recommended flow
+## Recommended update flow
 
 First inspect the installation mode and planned command:
 
 ```bash
-strategos upgrade --dry-run
+strategos update --dry-run
 ```
 
 For a persistent global npm installation, apply the update and verify it:
 
 ```bash
-strategos upgrade
+strategos update
 strategos --version
-strategos doctor
+strategos reload
 ```
 
-`strategos update` is an alias for `strategos upgrade`.
+`strategos upgrade` is an alias for `strategos update`.
 
 ## Installation modes
 
@@ -34,6 +34,56 @@ strategos doctor
 Automatic upgrades use the hard-coded package source
 `github:BigBugaboo/strategos`. Arbitrary package URLs are not accepted by the
 upgrade command.
+
+## Reloading configuration
+
+Every new Strategos process reads the current project configuration. To make
+that refresh explicit and re-run CLI health detection at the same time, use:
+
+```bash
+strategos reload
+strategos reload --json
+```
+
+Inside the interactive console, `/reload` refreshes the configuration and
+agent availability without discarding the current conversation, plan, or
+attachments. `/agents` remains available when only a health report is needed.
+
+## Clearing Strategos cache
+
+Preview the exact cache target, then remove it:
+
+```bash
+strategos cache clear --dry-run
+strategos cache clear
+```
+
+Only `~/.strategos/cache` is removed. Strategos refuses unexpected cache paths,
+and the command never clears npm, npx, Claude, Codex, or Copilot caches. The
+project registry at `~/.strategos/projects.json`, repository `.strategos`
+configuration, sessions, attachments, plans, and run evidence are preserved.
+
+`strategos clear-cache` is retained as a compact alias for scripts.
+
+## Uninstalling the CLI
+
+Inspect the detected installation and removal command first:
+
+```bash
+strategos uninstall --dry-run
+strategos uninstall
+```
+
+| Detected mode | Uninstall behavior |
+| --- | --- |
+| Global npm package | Runs `npm uninstall --global strategos-cli`. |
+| Source checkout or `npm link` | Prints an `npm unlink --global strategos-cli` command for the checkout; never deletes the checkout. |
+| Temporary `npx` package | Reports that there is no persistent installation; does not clear the shared npm cache. |
+| Project-local package | Prints `npm uninstall strategos-cli` for the consuming project rather than changing it automatically. |
+
+Uninstalling removes only the CLI installation or link. Project configuration,
+the global project registry, sessions, attachments, worktrees, branches, and
+run history remain untouched.
 
 ## Manual commands
 

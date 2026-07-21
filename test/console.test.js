@@ -345,6 +345,27 @@ test("auto mode never executes when preview fails", async () => {
   assert.match(captured.read(), /Error  preview failed/);
 });
 
+test("reload refreshes project configuration and CLI availability", async () => {
+  const captured = captureOutput();
+  let configLoads = 0;
+  let doctorRuns = 0;
+  await startConsole(
+    consoleOptions("/reload\n/exit\n", captured.output, {
+      loadConfigFn: async () => {
+        configLoads += 1;
+        return { ...DEFAULT_CONFIG, executionMode: "manual" };
+      },
+      runDoctorFn: async () => {
+        doctorRuns += 1;
+        return healthyChecks;
+      },
+    }),
+  );
+  assert.equal(configLoads, 2);
+  assert.equal(doctorRuns, 2);
+  assert.match(captured.read(), /Reloaded.*Project configuration and CLI availability/s);
+});
+
 test("failed planning can be resumed with durable AI context", async () => {
   const sessionStore = memorySessionStore();
   const attachment = {
