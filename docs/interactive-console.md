@@ -17,7 +17,7 @@ development goal.
 
 ## Planning and execution
 
-The `0.8.x` console delegates planning to one installed agent CLI instead of
+The console delegates planning to one installed agent CLI instead of
 embedding a model provider:
 
 1. The configured strategist, `codex` by default, is invoked immediately in
@@ -75,12 +75,43 @@ Use `/mode auto` or `/mode manual` to change the current console session. The
 setting applies to newly entered goals and does not automatically execute an
 already loaded or previously generated plan.
 
+## Image context
+
+Use `/attach <path>` before entering a goal to add PNG, JPEG, GIF, or WebP
+context. Paths may point outside the repository; Strategos validates the file,
+copies it into `.strategos/attachments/`, and records a content-derived ID.
+Attachments are capped at 20 MB and the storage directory is ignored locally
+before the file is written.
+
+On macOS, `/attach` without a path captures the current image clipboard through
+the optional `pngpaste` command. Install it with `brew install pngpaste`.
+Terminal applications do not expose a raw pasted bitmap to a child readline
+process, so Command+V inside Warp or another terminal is not a supported image
+transport by itself.
+
+The active images are sent to the strategist and copied to each task worktree.
+Codex and Copilot receive their native image/attachment arguments. Claude and
+custom adapters receive the local paths in the prompt and may read the files
+from the worktree. `/attachments` lists selected images; `/detach <id>` or
+`/detach all` removes them from the current context without deleting durable
+files that an older session may need.
+
+## Single-CLI multi-session mode
+
+At least one supported CLI is sufficient in the default `hybrid` worker mode.
+When the healthy worker pool contains only one CLI, the planning prompt asks it to split genuinely independent work
+without inventing artificial or overlapping tasks. Every task is still a fresh
+process/session with a UUID, task name, isolated worktree, branch, prompt, and
+report. Claude and Copilot receive the native session ID; Codex `exec` already
+starts a fresh provider session, while Strategos records its own UUID in the
+manifest. Ready tasks run concurrently up to `maxParallel`.
+
 ## Recovery and resume
 
 Every goal creates a durable, repository-local session journal. Strategos
 checkpoints the original goal, selected strategist and workers, generated plan,
-preview state, run ID, bounded execution events, task reports, final manifest,
-and the latest error. Writes are atomic so a partially written checkpoint does
+preview state, image metadata, run ID, bounded execution events, task reports,
+final manifest, and the latest error. Writes are atomic so a partially written checkpoint does
 not replace the last valid state.
 
 Session files live under `.git/strategos/sessions/`, outside the tracked working
@@ -113,6 +144,9 @@ sessions also remain inspectable but are never offered for recovery.
 | `/new [goal]` | Ask the strategist to produce another plan. If the goal is omitted, enter it on the next line. |
 | `/mode [auto\|manual]` | Show or change execution behavior for newly entered goals in this session. |
 | `/strategist [agent]` | Show or change the planning CLI for the current session. |
+| `/attach [path]` | Attach an image path, or capture the macOS image clipboard when no path is supplied. |
+| `/attachments` | List image context selected for the next goal or current session. |
+| `/detach <id\|all>` | Remove one or all images from the current context. |
 | `/plan` | Show the current task graph and dependency waves. |
 | `/load <file>` | Load and validate a JSON plan inside the repository. |
 | `/save [file]` | Save the current plan. The default is a timestamped file under `.strategos/plans/`. |

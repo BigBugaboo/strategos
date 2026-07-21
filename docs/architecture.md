@@ -13,12 +13,15 @@
    explicit `/run` gate.
 7. Provider-neutral session checkpoints preserve recovery context without
    importing or depending on native vendor conversation histories.
+8. Image context is stored once, then materialized inside each isolated
+   worktree and passed through the strongest interface each CLI exposes.
 
 ## Components
 
 ```text
 User goal
    ├──────────────► local session journal
+   ├──────────────► image attachment store
    │                       ▲
    ▼
 Strategist CLI (read-only)
@@ -90,6 +93,7 @@ Each task receives:
 - `AGENTS.md`, `.strategos/context.md`, and `.strategos/memory.md`;
 - plan-level and task-level context files;
 - completed dependency reports;
+- image attachment paths copied into its worktree;
 - a consistent completion contract.
 
 Context paths must stay inside the repository and are capped by
@@ -102,11 +106,22 @@ serially to avoid concurrent Git metadata mutations, then agent processes run
 in parallel. A failed task causes dependants to be marked skipped while
 independent siblings remain available.
 
+When every task uses the same agent, the scheduler remains unchanged: each task
+gets a distinct Strategos session UUID and process. Claude and Copilot also
+receive that UUID through their native session flags; Codex `exec` creates a
+fresh session per invocation. The run manifest exposes the mapping for audit
+and recovery.
+
 ### Adapter boundary
 
 Adapters return a command plus an argument array. Strategos never creates a
 shell command by concatenating prompts. Provider-specific permission defaults
 live only in `src/adapters.js`.
+
+The attachment boundary uses native repeatable arguments for Codex (`--image`)
+and Copilot (`--attachment`). Claude receives worktree-local paths in the task
+prompt because its current non-interactive CLI has no equivalent local image
+flag.
 
 ### Evidence store
 
@@ -131,7 +146,7 @@ dependency. Only a confirmed global npm installation is updated automatically.
 Other modes receive explicit commands so package-manager state and source
 checkouts are not silently replaced.
 
-## Non-goals for v0.8
+## Non-goals for v0.10
 
 - Porting native conversation histories between vendors.
 - Automatic branch merging or pushing.

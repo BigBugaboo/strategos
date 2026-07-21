@@ -46,3 +46,11 @@ test("rejects invalid plan-level context", () => {
   plan.context = ["AGENTS.md", { path: "secret" }];
   assert.throws(() => validatePlan(plan), /plan.context must be an array/);
 });
+
+test("normalizes image attachments and rejects non-path entries", () => {
+  const plan = validPlan();
+  plan.attachments = [".strategos/attachments/design.png"];
+  assert.deepEqual(validatePlan(plan).attachments, plan.attachments);
+  plan.attachments = [{ path: "design.png" }];
+  assert.throws(() => validatePlan(plan), /plan.attachments must be an array/);
+});

@@ -10,7 +10,15 @@ export function versionInvocation(agent, config) {
   return { command: definition.command, args: VERSION_ARGS[agent] || ["--version"] };
 }
 
-export function agentInvocation(agent, { prompt, mode, workspace, config }) {
+export function agentInvocation(agent, {
+  prompt,
+  mode,
+  workspace,
+  config,
+  attachments = [],
+  sessionId,
+  sessionName,
+}) {
   const definition = config.agents[agent];
   if (!definition) throw new Error(`agent is not configured: ${agent}`);
   const extra = Array.isArray(definition.extraArgs) ? definition.extraArgs : [];
@@ -25,6 +33,8 @@ export function agentInvocation(agent, { prompt, mode, workspace, config }) {
         "text",
         "--permission-mode",
         mode === "read-only" ? "plan" : "auto",
+        ...(sessionId ? ["--session-id", sessionId] : []),
+        ...(sessionName ? ["--name", sessionName] : []),
         ...extra,
       ],
     };
@@ -41,6 +51,7 @@ export function agentInvocation(agent, { prompt, mode, workspace, config }) {
         "never",
         "-C",
         workspace,
+        ...attachments.flatMap((attachment) => ["--image", attachment.path]),
         ...extra,
         prompt,
       ],
@@ -51,7 +62,17 @@ export function agentInvocation(agent, { prompt, mode, workspace, config }) {
     const readOnly = mode === "read-only" ? ["--available-tools=view,grep,glob"] : [];
     return {
       command: definition.command,
-      args: ["--no-ask-user", "--output-format=text", ...readOnly, ...extra, "-p", prompt],
+      args: [
+        "--no-ask-user",
+        "--output-format=text",
+        ...readOnly,
+        ...(sessionId ? ["--session-id", sessionId] : []),
+        ...(sessionName ? ["--name", sessionName] : []),
+        ...attachments.flatMap((attachment) => ["--attachment", attachment.path]),
+        ...extra,
+        "-p",
+        prompt,
+      ],
     };
   }
 
@@ -60,6 +81,7 @@ export function agentInvocation(agent, { prompt, mode, workspace, config }) {
       "{{prompt}}": prompt,
       "{{workspace}}": workspace,
       "{{mode}}": mode,
+      "{{sessionId}}": sessionId,
     };
     return {
       command: definition.command,
@@ -70,7 +92,14 @@ export function agentInvocation(agent, { prompt, mode, workspace, config }) {
   throw new Error(`no adapter implementation for agent: ${agent}`);
 }
 
-export function strategistInvocation(agent, { prompt, workspace, config, jsonSchema, schemaPath }) {
+export function strategistInvocation(agent, {
+  prompt,
+  workspace,
+  config,
+  jsonSchema,
+  schemaPath,
+  attachments = [],
+}) {
   const definition = config.agents[agent];
   if (!definition) throw new Error(`agent is not configured: ${agent}`);
   const extra = Array.isArray(definition.extraArgs) ? definition.extraArgs : [];
@@ -105,6 +134,7 @@ export function strategistInvocation(agent, { prompt, workspace, config, jsonSch
         "never",
         "-C",
         workspace,
+        ...attachments.flatMap((attachment) => ["--image", attachment.path]),
         ...(schemaPath ? ["--output-schema", schemaPath] : []),
         ...extra,
         prompt,
@@ -119,6 +149,7 @@ export function strategistInvocation(agent, { prompt, workspace, config, jsonSch
         "--no-ask-user",
         "--output-format=text",
         "--available-tools=view,grep,glob",
+        ...attachments.flatMap((attachment) => ["--attachment", attachment.path]),
         ...extra,
         "-p",
         prompt,
@@ -126,7 +157,7 @@ export function strategistInvocation(agent, { prompt, workspace, config, jsonSch
     };
   }
 
-  return agentInvocation(agent, { prompt, mode: "read-only", workspace, config });
+  return agentInvocation(agent, { prompt, mode: "read-only", workspace, config, attachments });
 }
 
 export const BUILTIN_AGENT_NAMES = Object.freeze(["claude", "codex", "copilot"]);

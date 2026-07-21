@@ -53,7 +53,7 @@ async function ensureGitignore(root) {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  const rules = [".strategos/runs/", ".strategos/memory.local.md"];
+  const rules = [".strategos/runs/", ".strategos/attachments/", ".strategos/memory.local.md"];
   const missing = rules.filter((rule) => !current.split(/\r?\n/).includes(rule));
   if (missing.length === 0) return false;
   const prefix = current && !current.endsWith("\n") ? "\n" : "";

@@ -1,6 +1,8 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { agentInvocation } from "./adapters.js";
+import { materializeAttachments } from "./attachments.js";
 import { buildTaskPrompt, collectContext } from "./context.js";
 import { assertCleanRepo, changedFiles, createTaskWorktree, currentHead } from "./git.js";
 import { buildWaves, validatePlan } from "./plan.js";
@@ -22,22 +24,41 @@ function publicTaskResult(result, root) {
     id: result.id,
     agent: result.agent,
     mode: result.mode,
+    sessionId: result.sessionId ?? null,
+    sessionName: result.sessionName ?? null,
     status: result.status,
     exitCode: result.exitCode ?? null,
     branch: result.branch ?? null,
     worktree: relative(result.worktree),
     artifactDir: relative(result.artifactDir),
     changedFiles: result.changedFiles ?? [],
+    attachments: result.attachments?.map(({ id, relativePath, mimeType }) => ({
+      id,
+      relativePath,
+      mimeType,
+    })) ?? [],
     error: result.error ?? null,
     startedAt: result.startedAt ?? null,
     finishedAt: result.finishedAt ?? null,
   };
 }
 
-async function prepareTask({ root, config, plan, task, runId, runDir, results, runMemory }) {
+async function prepareTask({
+  root,
+  config,
+  plan,
+  task,
+  runId,
+  runDir,
+  results,
+  runMemory,
+  sessionIdFactory,
+}) {
   const artifactDir = path.join(runDir, task.id);
   await ensureDir(artifactDir);
   const startedAt = new Date().toISOString();
+  const sessionId = sessionIdFactory();
+  const sessionName = `strategos-${task.id}-${sessionId.slice(0, 8)}`;
   try {
     const worktree = await createTaskWorktree({
       root,
@@ -58,18 +79,32 @@ async function prepareTask({ root, config, plan, task, runId, runDir, results, r
       id,
       report: results.get(id)?.report || "[dependency produced no report]",
     }));
-    const prompt = buildTaskPrompt({ plan, task, sharedContext, dependencyReports, runMemory });
+    const attachments = await materializeAttachments(root, worktree.path, plan.attachments);
+    const prompt = buildTaskPrompt({
+      plan,
+      task,
+      sharedContext,
+      dependencyReports,
+      runMemory,
+      attachments,
+    });
     const invocation = agentInvocation(task.agent, {
       prompt,
       mode: task.mode,
       workspace: worktree.path,
       config,
+      attachments,
+      sessionId,
+      sessionName,
     });
     await fs.writeFile(path.join(artifactDir, "prompt.md"), prompt, "utf8");
     return {
       id: task.id,
       agent: task.agent,
       mode: task.mode,
+      sessionId,
+      sessionName,
+      attachments,
       artifactDir,
       branch: worktree.branch,
       worktree: worktree.path,
@@ -81,6 +116,8 @@ async function prepareTask({ root, config, plan, task, runId, runDir, results, r
       id: task.id,
       agent: task.agent,
       mode: task.mode,
+      sessionId,
+      sessionName,
       status: "failed",
       artifactDir,
       report: "",
@@ -102,6 +139,7 @@ async function executePreparedTask(prepared, config) {
       STRATEGOS_TASK_ID: prepared.id,
       STRATEGOS_AGENT: prepared.agent,
       STRATEGOS_MODE: prepared.mode,
+      STRATEGOS_SESSION_ID: prepared.sessionId,
       STRATEGOS_WORKTREE: prepared.worktree,
     },
   });
@@ -141,6 +179,7 @@ export async function runPlan({
   dryRun = false,
   maxParallel,
   onEvent = () => {},
+  sessionIdFactory = () => crypto.randomUUID(),
 }) {
   const emit = async (event) => {
     try {
@@ -180,6 +219,9 @@ export async function runPlan({
     head,
     baseRef: config.baseRef,
     status: "running",
+    sessionMode: new Set(plan.tasks.map((task) => task.agent)).size === 1
+      ? (plan.tasks.length > 1 ? "single-cli-multi-session" : "single-cli")
+      : "multi-cli",
     startedAt: new Date().toISOString(),
     finishedAt: null,
     tasks: {},
@@ -224,7 +266,17 @@ export async function runPlan({
     for (const task of ready) {
       await emit({ type: "task_preparing", task });
       prepared.push(
-        await prepareTask({ root, config, plan, task, runId, runDir, results, runMemory }),
+        await prepareTask({
+          root,
+          config,
+          plan,
+          task,
+          runId,
+          runDir,
+          results,
+          runMemory,
+          sessionIdFactory,
+        }),
       );
       pending.delete(task.id);
     }

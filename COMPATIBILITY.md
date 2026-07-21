@@ -6,14 +6,14 @@ tracked as a tested baseline rather than as an exact runtime pin.
 
 ## Current baseline
 
-The Strategos `0.8.x` line is validated with Node.js 24 and the following agent
+The Strategos `0.10.x` line is validated with Node.js 24 and the following agent
 CLI releases:
 
 | Agent CLI | Tested version | Command surface used by Strategos |
 | --- | ---: | --- |
-| Claude Code | `2.1.215` | `-p`, `--output-format`, `--json-schema`, `--permission-mode`, `--tools` |
-| OpenAI Codex CLI | `0.144.6` | `exec`, `--sandbox`, `--output-schema`, `--color`, `-C` |
-| GitHub Copilot CLI | `1.0.71` | `-p`, `--no-ask-user`, `--output-format`, `--available-tools` |
+| Claude Code | `2.1.215` | `-p`, `--output-format`, `--json-schema`, `--permission-mode`, `--tools`, `--session-id`, `--name` |
+| OpenAI Codex CLI | `0.144.6` | `exec`, `--sandbox`, `--output-schema`, `--color`, `--image`, `-C` |
+| GitHub Copilot CLI | `1.0.71` | `-p`, `--no-ask-user`, `--output-format`, `--available-tools`, `--attachment`, `--session-id`, `--name` |
 
 These are the versions exercised during the latest compatibility check. They
 are not hard pins: newer releases may work without changes, but are considered

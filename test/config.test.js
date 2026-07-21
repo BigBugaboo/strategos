@@ -12,6 +12,7 @@ test("init is non-destructive and idempotent", async () => {
   const second = await initializeProject(root);
   assert.ok(first.includes(".strategos/config.json"));
   assert.equal(await fs.readFile(path.join(root, "AGENTS.md"), "utf8"), "keep me\n");
+  assert.match(await fs.readFile(path.join(root, ".gitignore"), "utf8"), /\.strategos\/attachments\//);
   assert.deepEqual(second, []);
 });
 

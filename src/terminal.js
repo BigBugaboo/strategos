@@ -62,6 +62,7 @@ export function createTerminalUi(options = {}) {
 
 export function renderWelcome(ui, { version, root, strategist, executionMode = "auto", checks }) {
   const agents = checks.filter((check) => !["git", "node"].includes(check.name));
+  const healthyAgents = agents.filter((check) => check.ok);
   const git = checks.find((check) => check.name === "git");
   const node = checks.find((check) => check.name === "node");
   const agentSummary = agents
@@ -81,6 +82,9 @@ export function renderWelcome(ui, { version, root, strategist, executionMode = "
     ui.muted(shortenPath(root)),
     "",
     `${ui.muted("Agents ")} ${agentSummary || ui.warning("none available")}`,
+    ...(healthyAgents.length === 1
+      ? [`${ui.muted("Sessions")} ${ui.bold(`parallel ${healthyAgents[0].name} workers`)} ${ui.muted("· isolated worktrees")}`]
+      : []),
     `${ui.muted("Runtime")} ${runtimeDetail(node, "Node")} ${ui.muted("·")} ${runtimeDetail(git, "Git")}`,
     ...warnings,
     "",
@@ -93,14 +97,14 @@ export function renderWelcome(ui, { version, root, strategist, executionMode = "
   ].join("\n");
 }
 
-export function renderInputChrome(ui, executionMode = "auto") {
+export function renderInputChrome(ui, executionMode = "auto", attachmentCount = 0) {
   const behavior =
     executionMode === "auto"
       ? `${ui.muted("preview")} ${ui.muted("→")} ${ui.muted("run")}`
       : `${ui.accent("/run")} ${ui.muted("after review")}`;
   return [
     ui.rule(),
-    `${ui.accent("/help")} ${ui.muted("commands")}  ${ui.muted("·")}  ${ui.accent(`/mode ${executionMode}`)}  ${ui.muted("·")}  ${behavior}`,
+    `${ui.accent("/help")} ${ui.muted("commands")}  ${ui.muted("·")}  ${ui.accent(`/mode ${executionMode}`)}  ${ui.muted("·")}  ${behavior}${attachmentCount ? `  ${ui.muted("·")}  ${ui.accent(`${attachmentCount} image${attachmentCount === 1 ? "" : "s"}`)}` : ""}`,
   ].join("\n");
 }
 

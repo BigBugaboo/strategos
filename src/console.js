@@ -2,6 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import readline from "node:readline";
+import {
+  attachImage,
+  captureClipboardImage,
+  formatBytes,
+  resolveAttachments,
+} from "./attachments.js";
 import { initializeProject, loadConfig } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { loadRun, runPlan } from "./orchestrator.js";
@@ -40,9 +46,18 @@ export function formatPlan(plan, ui = createTerminalUi()) {
     Math.max(header.length, ...rows.map((row) => row[index].length)),
   );
   const render = (row) => row.map((cell, index) => cell.padEnd(widths[index])).join("  ");
+  const attachmentSummary = plan.attachments?.length
+    ? [`${ui.muted("Images")} ${plan.attachments.join(", ")}`, ""]
+    : [];
+  const agents = new Set(plan.tasks.map((task) => task.agent));
+  const sessionSummary = agents.size === 1 && plan.tasks.length > 1
+    ? [`${ui.muted("Mode  ")} ${ui.bold(`parallel ${[...agents][0]} sessions`)} ${ui.muted("· isolated worktrees")}`, ""]
+    : [];
   return [
     `${ui.muted("Goal ")} ${ui.bold(plan.goal)}`,
     "",
+    ...attachmentSummary,
+    ...sessionSummary,
     render(headers),
     render(widths.map((width) => "-".repeat(width))),
     ...rows.map(render),
@@ -69,6 +84,7 @@ function formatManifest(manifest, ui = createTerminalUi()) {
   for (const task of Object.values(manifest.tasks)) {
     const marker = task.status === "succeeded" ? ui.success("●") : ui.error("●");
     lines.push(`${marker} ${task.id}  ${ui.accent(task.agent)}  ${task.status}`);
+    if (task.sessionId) lines.push(`  ${ui.muted("session")} ${task.sessionId}`);
     if (task.branch) lines.push(`  ${ui.muted("branch")} ${task.branch}`);
     if (task.error) lines.push(`  ${ui.error("error")} ${task.error}`);
   }
@@ -78,7 +94,10 @@ function formatManifest(manifest, ui = createTerminalUi()) {
 function formatEvent(event, ui = createTerminalUi()) {
   if (event.type === "run_started") return `${ui.info("●")} Run ${event.runId} started`;
   if (event.type === "task_preparing") return `${ui.muted("○")} ${event.task.id}  ${event.task.agent}  preparing`;
-  if (event.type === "task_started") return `${ui.info("●")} ${event.task.id}  ${event.task.agent}  running`;
+  if (event.type === "task_started") {
+    const session = event.task.sessionId ? `  session ${event.task.sessionId.slice(0, 8)}` : "";
+    return `${ui.info("●")} ${event.task.id}  ${event.task.agent}  running${ui.muted(session)}`;
+  }
   if (event.type === "task_skipped") return `${ui.warning("○")} ${event.task.id}  skipped  ${event.task.error}`;
   if (event.type === "task_finished") {
     const marker = event.task.status === "succeeded" ? ui.success("●") : ui.error("●");
@@ -98,6 +117,10 @@ function consoleHelp(ui = createTerminalUi()) {
                   Show or change execution mode for this session
   /strategist [agent]
                   Show or select the planning CLI for this session
+  /attach [path]  Attach an image path, or capture the macOS clipboard
+  /attachments    List image context for the next goal/current session
+  /detach <id|all>
+                  Remove an image from the current context
   /plan           Show the current plan
   /load <file>    Load and validate a JSON plan
   /save [file]    Save the current plan for editing or version control
@@ -114,6 +137,20 @@ function consoleHelp(ui = createTerminalUi()) {
   /exit           Exit Strategos (Ctrl+C also exits when idle)
 
 ${ui.muted("Enter ordinary text to ask the strategist CLI to create a task graph.")}`;
+}
+
+function serializableAttachments(attachments) {
+  return attachments.map(({ path: _path, ...attachment }) => attachment);
+}
+
+function formatAttachments(attachments, ui) {
+  if (!attachments.length) return "No image attachments selected.";
+  return [
+    ui.bold("Image attachments"),
+    ...attachments.map((attachment) =>
+      `${ui.accent(attachment.id)}  ${attachment.name}  ${ui.muted(`${attachment.mimeType} · ${formatBytes(attachment.size)}`)}`,
+    ),
+  ].join("\n");
 }
 
 function safeRepoPath(root, input) {
@@ -172,6 +209,9 @@ export async function startConsole(options) {
   const planWithStrategistFn = options.planWithStrategistFn || planWithStrategist;
   const loadRunFn = options.loadRunFn || loadRun;
   const initializeProjectFn = options.initializeProjectFn || initializeProject;
+  const attachImageFn = options.attachImageFn || attachImage;
+  const captureClipboardImageFn = options.captureClipboardImageFn || captureClipboardImage;
+  const resolveAttachmentsFn = options.resolveAttachmentsFn || resolveAttachments;
   const sessionStore = options.sessionStore || createSessionStore(root);
   const selectResumeSessionFn = options.selectResumeSessionFn || selectResumeSession;
   const interactive = Boolean(input.isTTY && output.isTTY);
@@ -184,6 +224,7 @@ export async function startConsole(options) {
   let checks = await runDoctorFn(config, root);
   let currentPlan;
   let currentSession;
+  let currentAttachments = [];
   let planningController;
   let planningInterruptArmed = false;
   let planningInterruptTimer;
@@ -241,7 +282,7 @@ export async function startConsole(options) {
   const promptUser = () => {
     if (!interactive || rl.closed) return;
     writeLine(output);
-    writeLine(output, renderInputChrome(ui, currentExecutionMode));
+    writeLine(output, renderInputChrome(ui, currentExecutionMode, currentAttachments.length));
     rl.setPrompt(ui.prompt);
     rl.prompt();
   };
@@ -282,6 +323,21 @@ export async function startConsole(options) {
     promptUser();
   }
 
+  const syncAttachmentState = async () => {
+    if (currentPlan) {
+      currentPlan = validatePlan({
+        ...currentPlan,
+        attachments: currentAttachments.map((attachment) => attachment.relativePath),
+      }, configuredAgents());
+    }
+    if (currentSession) {
+      currentSession = await sessionStore.update(currentSession, {
+        attachments: serializableAttachments(currentAttachments),
+        ...(currentPlan ? { plan: currentPlan } : {}),
+      });
+    }
+  };
+
   const previewCurrentPlan = async () => {
     if (!currentPlan) throw new Error("no current plan; enter a goal or use /load");
     const result = await runPlanFn({ root, config, planInput: currentPlan, dryRun: true });
@@ -289,6 +345,7 @@ export async function startConsole(options) {
       currentSession = await sessionStore.update(currentSession, {
         status: "previewed",
         plan: currentPlan,
+        attachments: serializableAttachments(currentAttachments),
       });
     }
     writeLine(output, `${ui.info("Preview")}  Max parallel: ${result.maxParallel}`);
@@ -306,11 +363,13 @@ export async function startConsole(options) {
         strategist: currentStrategist,
         workerAgents: availableAgents(),
         executionMode: currentExecutionMode,
+        attachments: serializableAttachments(currentAttachments),
       });
     }
     currentSession = await sessionStore.update(currentSession, {
       status: "running",
       plan: currentPlan,
+      attachments: serializableAttachments(currentAttachments),
       error: null,
       finishedAt: null,
     });
@@ -372,10 +431,15 @@ export async function startConsole(options) {
     );
     currentPlan = undefined;
     if (resumeSession) {
+      currentAttachments = await resolveAttachmentsFn(
+        root,
+        resumeSession.attachments || resumeSession.plan?.attachments || [],
+      );
       currentSession = await sessionStore.update(resumeSession, {
         strategist: currentStrategist,
         workerAgents,
         executionMode: currentExecutionMode,
+        attachments: serializableAttachments(currentAttachments),
         status: "planning",
         attempts: (resumeSession.attempts || 1) + 1,
         error: null,
@@ -394,6 +458,7 @@ export async function startConsole(options) {
         strategist: currentStrategist,
         workerAgents,
         executionMode: currentExecutionMode,
+        attachments: serializableAttachments(currentAttachments),
       });
     }
     writeLine(output, `${ui.info("Planning")}  ${currentStrategist} is reading the repository in read-only mode...`);
@@ -407,6 +472,7 @@ export async function startConsole(options) {
         workerAgents,
         signal: planningController.signal,
         resumeContext: resumeSession ? buildResumeContext(resumeSession) : undefined,
+        attachments: currentAttachments,
       });
     } catch (error) {
       currentSession = await sessionStore.update(currentSession, {
@@ -419,9 +485,14 @@ export async function startConsole(options) {
       resetPlanningInterrupt();
       planningController = undefined;
     }
+    currentPlan = validatePlan({
+      ...currentPlan,
+      attachments: currentAttachments.map((attachment) => attachment.relativePath),
+    }, configuredAgents());
     currentSession = await sessionStore.update(currentSession, {
       status: "planned",
       plan: currentPlan,
+      attachments: serializableAttachments(currentAttachments),
       error: null,
     });
     writeLine(output);
@@ -481,6 +552,40 @@ export async function startConsole(options) {
       );
       return;
     }
+    if (name === "attach" || name === "paste-image") {
+      const added = argument
+        ? await attachImageFn(root, argument)
+        : await captureClipboardImageFn(root);
+      const [resolved] = await resolveAttachmentsFn(root, [added]);
+      currentAttachments = [
+        ...currentAttachments.filter((attachment) => attachment.id !== resolved.id),
+        resolved,
+      ];
+      await syncAttachmentState();
+      writeLine(
+        output,
+        `${ui.success("Attached")}  ${resolved.name} ${ui.muted(`(${resolved.id}, ${formatBytes(resolved.size)})`)}`,
+      );
+      writeLine(output, ui.muted("The image will be sent to the strategist and every worker session."));
+      return;
+    }
+    if (name === "attachments") {
+      writeLine(output, formatAttachments(currentAttachments, ui));
+      return;
+    }
+    if (name === "detach") {
+      if (!argument) throw new Error("/detach requires an attachment id or all");
+      const before = currentAttachments.length;
+      currentAttachments = argument === "all"
+        ? []
+        : currentAttachments.filter((attachment) => attachment.id !== argument);
+      if (argument !== "all" && currentAttachments.length === before) {
+        throw new Error(`attachment not found: ${argument}`);
+      }
+      await syncAttachmentState();
+      writeLine(output, `${ui.success("Detached")}  ${argument === "all" ? `${before} image${before === 1 ? "" : "s"}` : argument}`);
+      return;
+    }
     if (name === "strategist") {
       if (!argument) {
         writeLine(output, `${ui.muted("Strategist")} ${ui.accent(currentStrategist)}`);
@@ -509,6 +614,7 @@ export async function startConsole(options) {
       const file = safeRepoPath(root, argument);
       const inputPlan = JSON.parse(await fs.readFile(file, "utf8"));
       currentPlan = validatePlan(inputPlan, configuredAgents());
+      currentAttachments = await resolveAttachmentsFn(root, currentPlan.attachments);
       currentSession = undefined;
       writeLine(output, `${ui.success("Loaded")}  ${path.relative(root, file)}`);
       writeLine(output, formatPlan(currentPlan, ui));
