@@ -184,6 +184,11 @@ The selected path scopes configuration, sessions, attachments, AI repository con
 and worker execution. Registered paths are stored locally in
 `~/.strategos/projects.json`.
 
+When New task is open, the composer shows a compact context bar with the
+current repository, local execution environment, and Git branch. Use the
+repository control to switch registered projects or add another local project;
+the selected path is applied before the task is sent to the strategist.
+
 Settings controls the default execution mode, strategist CLI, and optional
 desktop notifications for successful or failed tasks. Browser permission is
 requested when notifications are enabled, and the Web UI must remain open for

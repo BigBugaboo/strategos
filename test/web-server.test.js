@@ -95,6 +95,7 @@ async function fixture(t, overrides = {}) {
     ],
     sessionStore,
     createSessionStoreFn: (projectRoot) => projectRoot === secondRoot ? secondSessionStore : sessionStore,
+    currentBranchFn: async (projectRoot) => projectRoot === secondRoot ? "feature/second" : "main",
     projectRegistry,
     planWithStrategistFn: overrides.planWithStrategistFn || (async (input) => {
       planningRoots.push(input.root);
@@ -126,8 +127,9 @@ test("Web bootstrap exposes repository, sessions, and configured agents", async 
   const response = await fetch(`${url}/api/bootstrap`);
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.deepEqual(body.repository, { name: path.basename(root), path: root });
+  assert.deepEqual(body.repository, { name: path.basename(root), path: root, branch: "main" });
   assert.equal(body.projects.length, 2);
+  assert.equal(body.projects[1].branch, "feature/second");
   assert.equal(body.sessionGroups.length, 2);
   assert.equal(body.sessionGroups[1].sessions[0].goal, "Work in the second project");
   assert.deepEqual(body.agents, ["claude", "codex", "copilot"]);
@@ -186,7 +188,11 @@ test("Web APIs scope sessions to the selected registered project", async (t) => 
   });
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.deepEqual(body.repository, { name: "second-project", path: secondRoot });
+  assert.deepEqual(body.repository, {
+    name: "second-project",
+    path: secondRoot,
+    branch: "feature/second",
+  });
   assert.equal(body.sessions[0].goal, "Work in the second project");
 
   const unregistered = await fetch(`${url}/api/bootstrap`, {
