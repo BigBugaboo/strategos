@@ -116,7 +116,7 @@ export function createSessionStore(root, options = {}) {
     }
   };
 
-  const list = async ({ resumableOnly = false, limit = 20 } = {}) => {
+  const list = async ({ resumableOnly = false, includeArchived = false, limit = 20 } = {}) => {
     const directory = await directoryPromise;
     let files;
     try {
@@ -129,6 +129,7 @@ export function createSessionStore(root, options = {}) {
     for (const file of files.filter((name) => name.endsWith(".json"))) {
       try {
         const session = JSON.parse(await fs.readFile(path.join(directory, file), "utf8"));
+        if (!includeArchived && session.archivedAt) continue;
         if (!resumableOnly || RESUMABLE_STATUSES.has(session.status)) sessions.push(session);
       } catch {
         // A damaged journal must not hide other recoverable sessions.
@@ -176,6 +177,19 @@ export function createSessionStore(root, options = {}) {
       const next = { ...session, pinned: Boolean(pinned) };
       await writeAtomicJson(await fileFor(next.id), next);
       return next;
+    },
+    async setArchived(session, archived) {
+      const next = {
+        ...session,
+        archivedAt: archived ? timestamp() : null,
+      };
+      await writeAtomicJson(await fileFor(next.id), next);
+      return next;
+    },
+    async remove(session) {
+      const id = typeof session === "string" ? session : session.id;
+      await fs.rm(await fileFor(id));
+      return id;
     },
     async appendEvent(session, event) {
       const at = timestamp();

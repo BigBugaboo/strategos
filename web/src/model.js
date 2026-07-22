@@ -16,6 +16,22 @@ export function sortSidebarSessions(sessions = []) {
   });
 }
 
+export function notificationOutcome(event) {
+  if (event?.type === "session_complete") {
+    return event.status === "succeeded" ? "success" : "failure";
+  }
+  if (["session_error", "session_interrupted"].includes(event?.type)) return "failure";
+  return null;
+}
+
+export function shouldNotifyForEvent(settings, event) {
+  if (!settings?.enabled) return false;
+  const outcome = notificationOutcome(event);
+  if (outcome === "success") return settings.onSuccess !== false;
+  if (outcome === "failure") return settings.onFailure !== false;
+  return false;
+}
+
 export function historyDate(value, now = new Date()) {
   if (!value) return "";
   const date = new Date(value);
@@ -28,6 +44,16 @@ export function historyDate(value, now = new Date()) {
   }
   if (delta === 1) return "Yesterday";
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
+export function sessionStartedDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
 
 export function sessionTaskState(session, liveEvents = []) {
@@ -50,9 +76,42 @@ export function sessionTaskState(session, liveEvents = []) {
   }
   const values = [...tasks.values()];
   return {
+    tasks: values,
     activeTasks: values.filter((task) => ["preparing", "running"].includes(task.status)),
     changedFiles: [...new Set(values.flatMap((task) => task.changedFiles || []))],
   };
+}
+
+export function sessionFileChanges(session, liveEvents = []) {
+  const changes = new Map();
+  for (const task of sessionTaskState(session, liveEvents).tasks) {
+    for (const file of task.changedFiles || []) {
+      const taskId = task.id;
+      if (!taskId || !file) continue;
+      const key = `${taskId}\0${file}`;
+      changes.set(key, {
+        taskId,
+        path: file,
+        agent: task.agent,
+        available: task.diff?.available === true,
+        truncated: task.diff?.truncated === true,
+      });
+    }
+  }
+  return [...changes.values()];
+}
+
+function normalizedDiffPath(value) {
+  return String(value || "").replace(/^(a|b)\//, "");
+}
+
+export function findDiffFile(files, targetPath) {
+  const target = normalizedDiffPath(targetPath);
+  return (files || []).find((file) =>
+    [file.oldPath, file.newPath]
+      .filter((value) => value && value !== "/dev/null")
+      .some((value) => normalizedDiffPath(value) === target),
+  );
 }
 
 export function sessionActivityState(session, liveEvents = [], isActive = false) {

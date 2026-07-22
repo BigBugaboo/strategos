@@ -4,7 +4,13 @@ import path from "node:path";
 import { agentInvocation } from "./adapters.js";
 import { materializeAttachments } from "./attachments.js";
 import { buildTaskPrompt, collectContext } from "./context.js";
-import { assertCleanRepo, changedFiles, createTaskWorktree, currentHead } from "./git.js";
+import {
+  assertCleanRepo,
+  captureWorktreeChanges,
+  changedFiles,
+  createTaskWorktree,
+  currentHead,
+} from "./git.js";
 import { buildWaves, validatePlan } from "./plan.js";
 import { runCommand, commandExistsError } from "./process.js";
 import { createRunId, ensureDir, readJson, truncateText, writeJson } from "./utils.js";
@@ -32,6 +38,7 @@ function publicTaskResult(result, root) {
     worktree: relative(result.worktree),
     artifactDir: relative(result.artifactDir),
     changedFiles: result.changedFiles ?? [],
+    diff: result.diff ?? { available: false, bytes: 0, truncated: false },
     attachments: result.attachments?.map(({ id, relativePath, mimeType }) => ({
       id,
       relativePath,
@@ -67,6 +74,7 @@ async function prepareTask({
       taskId: task.id,
       baseRef: config.baseRef,
     });
+    const baseCommit = await currentHead(worktree.path);
     const contextPaths = [
       "AGENTS.md",
       ".strategos/context.md",
@@ -108,6 +116,7 @@ async function prepareTask({
       artifactDir,
       branch: worktree.branch,
       worktree: worktree.path,
+      baseCommit,
       invocation,
       startedAt,
     };
@@ -148,7 +157,22 @@ async function executePreparedTask(prepared, config, signal) {
   const report = result.stdout.trim();
   await fs.writeFile(path.join(prepared.artifactDir, "report.md"), `${report}\n`, "utf8");
   await fs.writeFile(path.join(prepared.artifactDir, "stderr.log"), result.stderr, "utf8");
-  const files = await changedFiles(prepared.worktree).catch(() => []);
+  let files = [];
+  let diff = { available: false, bytes: 0, truncated: false };
+  try {
+    const captured = await captureWorktreeChanges(prepared.worktree, prepared.baseCommit);
+    files = captured.files;
+    if (captured.files.length > 0) {
+      await fs.writeFile(path.join(prepared.artifactDir, "changes.diff"), captured.patch, "utf8");
+      diff = {
+        available: true,
+        bytes: captured.bytes,
+        truncated: captured.truncated,
+      };
+    }
+  } catch {
+    files = await changedFiles(prepared.worktree).catch(() => []);
+  }
   let error = null;
   if (commandExistsError(result)) error = `${prepared.invocation.command} not found on PATH`;
   else if (result.aborted) error = "task interrupted by user";
@@ -163,6 +187,7 @@ async function executePreparedTask(prepared, config, signal) {
     report,
     error,
     changedFiles: files,
+    diff,
     finishedAt: new Date().toISOString(),
   };
 }

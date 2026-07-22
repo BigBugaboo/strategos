@@ -47,7 +47,8 @@ Strategos provides a small neutral layer:
 - **Worktree isolation** for every task, including independent branches.
 - **Provider adapters** for `claude`, `codex`, and `copilot` commands already
   authenticated on the host.
-- **Durable evidence** under `.strategos/runs/<run-id>/`.
+- **Durable evidence** under `.strategos/runs/<run-id>/`, including a bounded
+  unified patch for each task that changed files.
 - **Defensive completion checks**: exit code zero without a report is treated as
   failure because some older agent CLIs return success after provider errors.
 - **Human-controlled integration**: review and merge the branches you want.
@@ -168,28 +169,54 @@ From an active Strategos console, the equivalent shortcut is:
 /web
 ```
 
-Use `/web 4311` to choose another local port. Keep the console open while the
-browser is using the embedded server; `/exit` stops it cleanly.
+Use `/web 4311` to choose another local port. `/web` starts the same background
+service as `strategos web`, so the console does not need to remain open and
+`/exit` leaves the Web UI running. Stop it explicitly with `/web stop` or:
+
+```bash
+strategos web stop
+```
+
+Restart the detached service without changing its current host or port with
+`/web restart` or:
+
+```bash
+strategos web restart
+```
 
 Open `http://127.0.0.1:4310`. The server binds to localhost by default. Use
 `--host` and `--port` only when you intentionally need a different interface.
+Startup returns control to the terminal after the detached service is ready.
+Runtime state and logs are kept in `.strategos/web.json` and
+`.strategos/web.log`; closing the terminal does not stop the service.
 The production page does not include seeded demo data; it reads the current
 repository and its locally persisted Strategos sessions directly.
 
-Use the Projects section in the left sidebar to add or switch local Git
+Use the Sessions section in the left sidebar to switch among registered local Git
 repositories. Projects and Sessions share the same navigation hierarchy, while
 the product header shows compact active-project context. Saved work is opened
 directly from the project-grouped Sessions list; there is no separate Runs view.
+The header uses the Strategos slogan instead of exposing the local repository path.
+The gear beside Sessions opens cross-project batch management. Archived Sessions
+leave the sidebar but remain restorable; deletion removes the Session journal
+after confirmation while preserving saved run artifacts. Active Sessions cannot
+be archived or deleted.
 The selected path scopes configuration, sessions, attachments, AI repository context, planning,
 and worker execution. Registered paths are stored locally in
 `~/.strategos/projects.json`.
 
-Settings controls the default execution mode and strategist CLI. Agent
+Settings controls the default execution mode, strategist CLI, and optional
+desktop notifications for successful or failed tasks. Browser permission is
+requested when notifications are enabled, and the Web UI must remain open for
+delivery. Each Settings change is saved immediately; there is no manual save
+action. Agent
 availability comes from local health checks and each agent's `enabled` setting;
 provider quota and billing remain in the provider's own CLI or dashboard. Auto
 mode previews and runs the generated plan, while
 Manual mode stops after planning and exposes a Run action. Session history,
-image upload, Resume, recent events, and changed files remain local.
+image upload, Resume, recent events, and changed files remain local. Selecting a
+file in **Files changed** opens its saved read-only patch; Unified is the default
+layout and Split is available for side-by-side review.
 
 See [docs/web-ui.md](docs/web-ui.md) for Vite+ development commands and the
 Web execution settings.
@@ -417,11 +444,15 @@ collisions; they are not a complete OS sandbox.
 └── <task-id>/
     ├── prompt.md
     ├── report.md
+    ├── changes.diff
     └── stderr.log
 ```
 
 The task branch and worktree path are recorded in `run.json`. Successful sibling
-reports are preserved even when another task fails.
+reports are preserved even when another task fails. Diff snapshots include
+committed, staged, unstaged, and untracked task changes. They are capped at 2 MiB
+and served only after the selected Session and task IDs are validated; oversized
+patches are truncated at a complete file boundary.
 
 ## Architecture and roadmap
 

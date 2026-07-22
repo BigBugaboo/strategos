@@ -9,8 +9,8 @@ function memorySessionStore(repository, initial = []) {
   let sequence = initial.length;
   const sessions = new Map(initial.map((session) => [session.id, session]));
   return {
-    async list() {
-      return [...sessions.values()];
+    async list({ includeArchived = false } = {}) {
+      return [...sessions.values()].filter((session) => includeArchived || !session.archivedAt);
     },
     async load(id) {
       return sessions.get(id);
@@ -38,6 +38,18 @@ function memorySessionStore(repository, initial = []) {
       sessions.set(updated.id, updated);
       return updated;
     },
+    async setArchived(session, archived) {
+      const updated = {
+        ...session,
+        archivedAt: archived ? "2026-07-22T00:00:00.000Z" : null,
+      };
+      sessions.set(updated.id, updated);
+      return updated;
+    },
+    async remove(session) {
+      sessions.delete(session.id);
+      return session.id;
+    },
     async appendEvent(session, event) {
       return this.update(session, { events: [...(session.events || []), event] });
     },
@@ -54,6 +66,7 @@ async function fixture(t, overrides = {}) {
     executionMode: "auto",
     strategist: "codex",
     workerMode: "hybrid",
+    notifications: { enabled: false, onSuccess: true, onFailure: true },
     agents: { claude: {}, codex: {}, copilot: {} },
   };
   const sessionStore = memorySessionStore(root);
@@ -84,6 +97,7 @@ async function fixture(t, overrides = {}) {
     port: 0,
     version: "test",
     loadConfigFn: async () => config,
+    saveConfigFn: async (_root, next) => Object.assign(config, next),
     runDoctorFn: async () => [
       { name: "git", ok: true, detail: "git" },
       { name: "node", ok: true, detail: "node" },
@@ -116,7 +130,7 @@ async function fixture(t, overrides = {}) {
     await new Promise((resolve) => result.server.close(resolve));
     await fs.rm(root, { recursive: true, force: true });
   });
-  return { ...result, root, secondRoot, planningRoots };
+  return { ...result, root, secondRoot, planningRoots, sessionStore };
 }
 
 test("Web bootstrap exposes repository, sessions, and configured agents", async (t) => {
@@ -129,7 +143,34 @@ test("Web bootstrap exposes repository, sessions, and configured agents", async 
   assert.equal(body.sessionGroups.length, 2);
   assert.equal(body.sessionGroups[1].sessions[0].goal, "Work in the second project");
   assert.deepEqual(body.agents, ["claude", "codex", "copilot"]);
+  assert.deepEqual(body.notifications, { enabled: false, onSuccess: true, onFailure: true });
   assert.deepEqual(body.sessions, []);
+});
+
+test("Web settings persist normalized task notification preferences", async (t) => {
+  const { url } = await fixture(t);
+  const response = await fetch(`${url}/api/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      executionMode: "manual",
+      strategist: "claude",
+      notifications: { enabled: true, onSuccess: false },
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).notifications, {
+    enabled: true,
+    onSuccess: false,
+    onFailure: true,
+  });
+
+  const bootstrap = await fetch(`${url}/api/bootstrap`);
+  assert.deepEqual((await bootstrap.json()).notifications, {
+    enabled: true,
+    onSuccess: false,
+    onFailure: true,
+  });
 });
 
 test("Web sessions can be pinned without changing projects", async (t) => {
@@ -148,6 +189,104 @@ test("Web sessions can be pinned without changing projects", async (t) => {
   const bootstrap = await fetch(`${url}/api/bootstrap`);
   const groups = (await bootstrap.json()).sessionGroups;
   assert.equal(groups.find((group) => group.path === secondRoot).sessions[0].pinned, true);
+});
+
+test("Web sessions can be archived, restored, and deleted in batches", async (t) => {
+  const { url, secondRoot } = await fixture(t);
+  const headers = {
+    "content-type": "application/json",
+    "x-strategos-project": secondRoot,
+  };
+  const manage = (action) =>
+    fetch(`${url}/api/sessions/batch`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ action, sessionIds: ["second-session"] }),
+    });
+
+  const archived = await manage("archive");
+  assert.equal(archived.status, 200);
+  assert.equal((await archived.json()).sessions[0].archivedAt !== null, true);
+
+  const visible = await fetch(`${url}/api/sessions`, { headers });
+  assert.equal((await visible.json()).length, 0);
+  const includingArchived = await fetch(`${url}/api/sessions?includeArchived=true`, { headers });
+  assert.equal((await includingArchived.json())[0].id, "second-session");
+
+  const restored = await manage("restore");
+  assert.equal(restored.status, 200);
+  assert.equal((await restored.json()).sessions[0].archivedAt, null);
+  assert.equal((await (await fetch(`${url}/api/sessions`, { headers })).json()).length, 1);
+
+  const deleted = await manage("delete");
+  assert.equal(deleted.status, 200);
+  assert.deepEqual((await deleted.json()).sessionIds, ["second-session"]);
+  assert.equal((await fetch(`${url}/api/sessions/second-session`, { headers })).status, 404);
+});
+
+test("Web session batch management rejects active sessions", async (t) => {
+  const { url } = await fixture(t, {
+    planWithStrategistFn: async () => new Promise(() => {}),
+  });
+  const created = await (
+    await fetch(`${url}/api/goals`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ goal: "Keep this session active", executionMode: "manual" }),
+    })
+  ).json();
+
+  const response = await fetch(`${url}/api/sessions/batch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "delete", sessionIds: [created.id] }),
+  });
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /active session cannot be managed/);
+});
+
+test("Web sessions expose only their persisted task diff", async (t) => {
+  const { url, root, sessionStore } = await fixture(t);
+  const runId = "20260722T120000Z-abcd";
+  const taskId = "implementation";
+  const patch = [
+    "diff --git a/src/example.js b/src/example.js",
+    "new file mode 100644",
+    "index 0000000..2e65efe",
+    "--- /dev/null",
+    "+++ b/src/example.js",
+    "@@ -0,0 +1 @@",
+    "+export const ready = true;",
+    "",
+  ].join("\n");
+  const artifactDir = path.join(root, ".strategos", "runs", runId, taskId);
+  await fs.mkdir(artifactDir, { recursive: true });
+  await fs.writeFile(path.join(artifactDir, "changes.diff"), patch, "utf8");
+  const session = await sessionStore.create({ goal: "Inspect a diff" });
+  await sessionStore.update(session, {
+    runId,
+    manifest: {
+      tasks: {
+        [taskId]: {
+          changedFiles: ["src/example.js"],
+          diff: { available: true, bytes: Buffer.byteLength(patch), truncated: false },
+        },
+      },
+    },
+  });
+
+  const response = await fetch(`${url}/api/sessions/${session.id}/diff?task=${taskId}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    taskId,
+    files: ["src/example.js"],
+    patch,
+    bytes: Buffer.byteLength(patch),
+    truncated: false,
+  });
+
+  const traversal = await fetch(`${url}/api/sessions/${session.id}/diff?task=..%2Fevil`);
+  assert.equal(traversal.status, 400);
 });
 
 test("Web APIs scope sessions to the selected registered project", async (t) => {

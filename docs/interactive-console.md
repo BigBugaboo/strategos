@@ -155,7 +155,9 @@ sessions also remain inspectable but are never offered for recovery.
 | `/status [id]` | Show a specific run, or the latest run when no ID is provided. |
 | `/sessions` | List the ten most recent durable sessions, including completed and abandoned sessions. |
 | `/resume [id]` | Choose a resumable session interactively, or re-plan a specific session ID directly. |
-| `/web [port]` | Start the local Web UI for this repository. The default port is `4310`; the server stops when the console exits. |
+| `/web [port]` | Start the local Web UI in the background. The default port is `4310`; the service keeps running after the console exits. |
+| `/web restart` | Restart the background Web UI while preserving its current host and port. |
+| `/web stop` | Stop this repository's background Web UI. The equivalent shell command is `strategos web stop`. |
 | `/agents` | Re-run environment and agent CLI health checks. |
 | `/reload` | Re-read project configuration and refresh agent CLI availability without leaving the current console. |
 | `/context` | List the shared context files currently present. |

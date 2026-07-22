@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   historyDate,
+  findDiffFile,
   mergeSessionEvents,
+  notificationOutcome,
   sessionActivityState,
+  sessionStartedDate,
+  sessionFileChanges,
   sessionTaskState,
   shouldSubmitComposerKey,
+  shouldNotifyForEvent,
   sortSidebarSessions,
 } from "./model.js";
 
@@ -32,7 +37,41 @@ describe("sidebar session ordering", () => {
   });
 });
 
+describe("task completion notifications", () => {
+  const enabled = { enabled: true, onSuccess: true, onFailure: true };
+
+  it("classifies terminal session events", () => {
+    expect(notificationOutcome({ type: "session_complete", status: "succeeded" })).toBe("success");
+    expect(notificationOutcome({ type: "session_complete", status: "failed" })).toBe("failure");
+    expect(notificationOutcome({ type: "session_error" })).toBe("failure");
+    expect(notificationOutcome({ type: "session_interrupted" })).toBe("failure");
+    expect(notificationOutcome({ type: "run_finished" })).toBeNull();
+  });
+
+  it("respects the master and per-outcome preferences", () => {
+    expect(shouldNotifyForEvent(enabled, { type: "session_complete", status: "succeeded" })).toBe(
+      true,
+    );
+    expect(
+      shouldNotifyForEvent(
+        { ...enabled, onSuccess: false },
+        { type: "session_complete", status: "succeeded" },
+      ),
+    ).toBe(false);
+    expect(shouldNotifyForEvent({ ...enabled, onFailure: false }, { type: "session_error" })).toBe(
+      false,
+    );
+    expect(shouldNotifyForEvent({ ...enabled, enabled: false }, { type: "session_error" })).toBe(
+      false,
+    );
+  });
+});
+
 describe("real session presentation", () => {
+  it("formats the inspector start time in English", () => {
+    expect(sessionStartedDate(new Date(2026, 6, 21, 18, 41))).toBe("Jul 21, 2026, 6:41 PM");
+  });
+
   it("formats history dates relative to the current day", () => {
     const now = new Date(2026, 6, 21, 12);
     expect(historyDate(new Date(2026, 6, 21, 10, 24), now)).toMatch(/10:24/);
@@ -66,6 +105,39 @@ describe("real session presentation", () => {
       expect.objectContaining({ id: "review", agent: "codex", status: "preparing" }),
     ]);
     expect(result.changedFiles).toEqual(["src/index.js"]);
+  });
+
+  it("keeps changed files associated with their task diff snapshot", () => {
+    const session = {
+      manifest: {
+        tasks: {
+          implementation: {
+            id: "implementation",
+            agent: "codex",
+            changedFiles: ["src/index.js"],
+            diff: { available: true, truncated: false },
+          },
+        },
+      },
+    };
+    expect(sessionFileChanges(session)).toEqual([
+      {
+        taskId: "implementation",
+        path: "src/index.js",
+        agent: "codex",
+        available: true,
+        truncated: false,
+      },
+    ]);
+  });
+
+  it("matches parsed diff paths for added and modified files", () => {
+    const files = [
+      { oldPath: "/dev/null", newPath: "src/new.js" },
+      { oldPath: "a/src/existing.js", newPath: "b/src/existing.js" },
+    ];
+    expect(findDiffFile(files, "src/new.js")).toBe(files[0]);
+    expect(findDiffFile(files, "src/existing.js")).toBe(files[1]);
   });
 
   it("shows the headless strategist as active while planning", () => {

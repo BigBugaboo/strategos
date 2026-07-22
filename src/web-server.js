@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { attachImage, resolveAttachments } from "./attachments.js";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, normalizeNotificationSettings, saveConfig } from "./config.js";
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
+import { loadSessionTaskDiff } from "./diffs.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { createProjectRegistry } from "./projects.js";
@@ -68,6 +69,7 @@ function publicSession(session) {
     events: session.events || [],
     error: session.error,
     pinned: Boolean(session.pinned),
+    archivedAt: session.archivedAt || null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     finishedAt: session.finishedAt,
@@ -130,10 +132,12 @@ export function createWebApplication(options) {
   const runDoctorFn = options.runDoctorFn || runDoctor;
   const planWithStrategistFn = options.planWithStrategistFn || planWithStrategist;
   const runPlanFn = options.runPlanFn || runPlan;
+  const loadSessionTaskDiffFn = options.loadSessionTaskDiffFn || loadSessionTaskDiff;
   const attachImageFn = options.attachImageFn || attachImage;
   const resolveAttachmentsFn = options.resolveAttachmentsFn || resolveAttachments;
   const createSessionStoreFn = options.createSessionStoreFn || createSessionStore;
   const projectRegistry = options.projectRegistry || createProjectRegistry({ initialRoot });
+  const webControl = options.webControl;
   const sessionStores = new Map();
   if (options.sessionStore) sessionStores.set(initialRoot, options.sessionStore);
   const subscribers = new Map();
@@ -355,6 +359,26 @@ export function createWebApplication(options) {
     const url = new URL(request.url, "http://localhost");
     const pathname = decodeURIComponent(url.pathname);
     try {
+      if (webControl && (pathname === "/api/web/status" || pathname === "/api/web/stop")) {
+        if (request.headers["x-strategos-web-token"] !== webControl.token) {
+          sendJson(response, 404, { error: "not found" });
+          return;
+        }
+        if (request.method === "GET" && pathname === "/api/web/status") {
+          sendJson(response, 200, {
+            instanceId: webControl.instanceId,
+            pid: webControl.pid,
+          });
+          return;
+        }
+        if (request.method === "POST" && pathname === "/api/web/stop") {
+          response.once("finish", webControl.stop);
+          sendJson(response, 202, { status: "stopping" });
+          return;
+        }
+        sendJson(response, 405, { error: "method not allowed" });
+        return;
+      }
       if (request.method === "POST" && pathname === "/api/projects") {
         const input = await readJsonBody(request);
         const project = await projectRegistry.add(input.path);
@@ -381,6 +405,7 @@ export function createWebApplication(options) {
           executionMode: config.executionMode || "auto",
           strategist: config.strategist,
           workerMode: config.workerMode,
+          notifications: normalizeNotificationSettings(config.notifications),
           agents: Object.keys(config.agents || {}),
           checks,
           sessions,
@@ -389,8 +414,73 @@ export function createWebApplication(options) {
         return;
       }
       if (request.method === "GET" && pathname === "/api/sessions") {
-        const sessions = await sessionStore.list({ limit: 100 });
+        const sessions = await sessionStore.list({
+          includeArchived: url.searchParams.get("includeArchived") === "true",
+          limit: 100,
+        });
         sendJson(response, 200, sessions.map(publicSession));
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/sessions/batch") {
+        const input = await readJsonBody(request);
+        const action = String(input.action || "");
+        if (!["archive", "restore", "delete"].includes(action)) {
+          throw Object.assign(new Error("action must be archive, restore, or delete"), {
+            status: 400,
+          });
+        }
+        if (!Array.isArray(input.sessionIds) || !input.sessionIds.length) {
+          throw Object.assign(new Error("sessionIds must be a non-empty array"), { status: 400 });
+        }
+        const sessionIds = [...new Set(input.sessionIds.map((id) => String(id)))];
+        if (sessionIds.length > 100 || sessionIds.some((id) => !/^[a-zA-Z0-9-]+$/.test(id))) {
+          throw Object.assign(new Error("sessionIds contains an invalid session id"), { status: 400 });
+        }
+        const sessions = [];
+        for (const id of sessionIds) {
+          const session = await sessionStore.load(id);
+          if (!session) {
+            throw Object.assign(new Error(`session not found: ${id}`), { status: 404 });
+          }
+          if (active.has(contextKey(context, id))) {
+            throw Object.assign(new Error(`active session cannot be managed: ${id}`), {
+              status: 409,
+            });
+          }
+          sessions.push(session);
+        }
+        if (action === "delete" && typeof sessionStore.remove !== "function") {
+          throw Object.assign(new Error("session deletion is unavailable"), { status: 501 });
+        }
+        const updated = [];
+        for (const session of sessions) {
+          if (action === "delete") {
+            await sessionStore.remove(session);
+            continue;
+          }
+          const archived = action === "archive";
+          const next =
+            typeof sessionStore.setArchived === "function"
+              ? await sessionStore.setArchived(session, archived)
+              : await sessionStore.update(session, {
+                  archivedAt: archived ? new Date().toISOString() : null,
+                });
+          updated.push(publicSession(next));
+        }
+        sendJson(response, 200, {
+          action,
+          sessionIds,
+          sessions: updated,
+        });
+        return;
+      }
+      const diffMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/diff$/);
+      if (request.method === "GET" && diffMatch) {
+        const taskId = url.searchParams.get("task");
+        if (!taskId) throw Object.assign(new Error("task query parameter is required"), { status: 400 });
+        const session = await sessionStore.load(diffMatch[1]);
+        if (!session) return sendJson(response, 404, { error: "session not found" });
+        sendJson(response, 200, await loadSessionTaskDiffFn(root, session, taskId));
         return;
       }
       const sessionMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)$/);
@@ -446,11 +536,13 @@ export function createWebApplication(options) {
           ...config,
           executionMode,
           strategist,
+          notifications: normalizeNotificationSettings(input.notifications, config.notifications),
         };
         await saveConfigFn(root, next);
         sendJson(response, 200, {
           executionMode: next.executionMode,
           strategist: next.strategist,
+          notifications: next.notifications,
         });
         return;
       }
