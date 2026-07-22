@@ -6,6 +6,12 @@
   "bin": {
     "strategos": "./bin/strategos.js"
   },
+  "files": [
+    "bin/",
+    "src/",
+    "scripts/",
+    "web/dist/"
+  ],
   "scripts": {
     "start": "node ./bin/strategos.js",
     "doctor": "node ./bin/strategos.js doctor",
