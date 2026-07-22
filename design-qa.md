@@ -1,80 +1,29 @@
-# Strategos Web design QA
+# Strategos Settings spacing design QA
 
 ## Evidence
 
-- Source visual truth: `/var/folders/s4/zvr523712rzcdfswttvppw400000gn/T/codex-clipboard-9306b709-660a-4302-b4db-c961d57a6ba7.png`
-- Final desktop capture: `/tmp/strategos-codex-experience-final-desktop.png`
-- Final compact capture: `/tmp/strategos-codex-experience-final-mobile.png`
-- Runtime: production Web assets served by `strategos web` at
-  `http://127.0.0.1:4310/`
-- Real state: two registered local projects, no seeded Sessions, and all three
-  installed CLIs reporting `Unknown` capacity
-- Comparison: the supplied reference and final desktop capture were opened
-  together in one visual-comparison pass
+- Issue reference: `/var/folders/s4/zvr523712rzcdfswttvppw400000gn/T/codex-clipboard-c6219c54-8b98-4f2e-8064-5687030f3dc5.png` (1640 × 892 pixels)
+- Before capture: `/Users/herny/.codex/visualizations/2026/07/22/019f87b6-259e-7511-a5a0-5f9815ca1b1c/settings-spacing-before.png` (1280 × 720 CSS-pixel viewport)
+- Final capture: `/Users/herny/.codex/visualizations/2026/07/22/019f87b6-259e-7511-a5a0-5f9815ca1b1c/settings-spacing-after.png` (1280 × 720 CSS-pixel viewport)
+- Runtime: production Web assets served by `strategos web` at `http://127.0.0.1:4312/`
+- State: Settings page, unchanged form, disabled Save settings action
 
-## Findings
+## Comparison and findings
 
-No actionable P0, P1, or P2 differences remain for the Codex experience
-alignment.
+The supplied issue image and the rendered result were inspected together. A second direct before/after comparison used the same 1280 × 720 viewport and Settings state.
 
-- Information hierarchy: the shell preserves the reference's top capacity
-  strip, project/task navigation, conversation surface, composer, and
-  contextual right inspector. In the real empty state, the inspector is hidden
-  until a Session is selected so the composer remains primary.
-- Typography and density: compact system typography, short labels, muted
-  secondary copy, and 39–42 pixel navigation rows reproduce the quiet coding
-  client rhythm without dashboard cards.
-- Surfaces and color: flat graphite/navy surfaces, thin separators, restrained
-  violet selection, provider colors, and a high-contrast composer match the
-  selected direction.
-- Composer: the prompt has autofocus, a compact attachment action, an explicit
-  Auto/Manual menu, a single primary send affordance, repository context, and
-  keyboard guidance.
-- Transient interactions: project and mode menus close through selection,
-  Escape, or outside click. Attachments can be removed before submission.
-- Session context: the right inspector remains available for real Sessions,
-  supports Run and Resume states, preserves output and changed-file
-  disclosures, and can be collapsed without clearing selection.
-- Empty and loading states: loading, retry, empty Session history, empty Runs,
-  and new-task states are visually quiet and retain a clear next action.
-- Settings: unchanged settings cannot be submitted; status and errors retain
-  live-region feedback.
-- Responsive behavior: desktop and compact layouts keep active project, core
-  navigation, prompt, mode, attachments, and send controls. Browser metrics
-  confirmed no horizontal overflow at 1280 and 390 CSS pixels.
-- Asset fidelity: the repository's Strategos PNG and Phosphor icon set are used
-  throughout. No placeholder assets, emoji, handcrafted SVG, or CSS-drawn icon
-  substitutes were added.
+- Before: the Save settings button began at the exact bottom edge of the final settings row, producing a measured gap of `0px`.
+- After: the action row has `24px` of top padding, producing a measured gap of `24px` from the final divider to the button.
+- The field rows, controls, button dimensions, typography, and content alignment are unchanged.
+- The final 1280-pixel desktop render reports no horizontal overflow.
+- The shared `.settings-actions` rule remains inside the existing responsive layout, so the spacing is preserved when the settings fields collapse to one column.
 
-## Accessibility coverage
+## Verification
 
-- Active navigation and project selection expose programmatic selected state.
-- Mode choices expose menu and radio semantics.
-- Icon-only buttons have accessible names, form inputs have labels, and focus
-  rings remain visible.
-- Status, errors, disclosures, progress bars, and reduced-motion preferences
-  retain dedicated semantics.
+- `npm run web:check`: passed
+- `npm run web:test`: 7 tests passed
+- `npm run web:build`: passed
 
-VoiceOver announcement order and operating-system high-contrast behavior were
-not automated and remain manual release checks.
-
-## Primary interactions verified
-
-- Loaded production assets and confirmed version `0.15.0`, repository context,
-  and real `Unknown` capacity values.
-- Opened and dismissed the project picker without persisting test data.
-- Opened the execution-mode menu and verified Auto and Manual descriptions and
-  selection semantics.
-- Navigated New task, Runs, and Settings; verified settings dirty state.
-- Confirmed the new-task prompt receives focus and the page reports no browser
-  warnings or errors.
-- Checked 1280-pixel desktop and 390-pixel compact widths with
-  `scrollWidth === innerWidth`.
-- Ran the full Node and Vite+ verification suite successfully.
-
-## Follow-up polish
-
-- P3: validate VoiceOver phrasing and Windows forced-colors behavior on native
-  hardware before a future accessibility-specific release.
+No actionable P0, P1, or P2 visual differences remain for the annotated spacing issue.
 
 final result: passed
