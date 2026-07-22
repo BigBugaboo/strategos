@@ -52,3 +52,7 @@ export async function changedFiles(worktree) {
 export async function currentHead(root) {
   return git(root, ["rev-parse", "HEAD"]);
 }
+
+export async function currentBranch(root) {
+  return (await git(root, ["branch", "--show-current"])) || "detached HEAD";
+}

@@ -7,6 +7,7 @@ import { attachImage, resolveAttachments } from "./attachments.js";
 import { loadConfig, normalizeNotificationSettings, saveConfig } from "./config.js";
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
+import { currentBranch } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { createProjectRegistry } from "./projects.js";
@@ -133,6 +134,7 @@ export function createWebApplication(options) {
   const attachImageFn = options.attachImageFn || attachImage;
   const resolveAttachmentsFn = options.resolveAttachmentsFn || resolveAttachments;
   const createSessionStoreFn = options.createSessionStoreFn || createSessionStore;
+  const currentBranchFn = options.currentBranchFn || currentBranch;
   const projectRegistry = options.projectRegistry || createProjectRegistry({ initialRoot });
   const sessionStores = new Map();
   if (options.sessionStore) sessionStores.set(initialRoot, options.sessionStore);
@@ -155,9 +157,13 @@ export function createWebApplication(options) {
     return Promise.all(projects.map(async (project) => {
       try {
         const projectSessionContext = await projectContext(project.path);
-        const sessions = await projectSessionContext.sessionStore.list({ limit: 30 });
+        const [sessions, branch] = await Promise.all([
+          projectSessionContext.sessionStore.list({ limit: 30 }),
+          currentBranchFn(project.path),
+        ]);
         return {
           ...project,
+          branch,
           sessions: sessions.map(publicSession),
           activeSessionIds: [...active.keys()]
             .filter((key) => key.startsWith(`${project.path}\u0000`))
@@ -375,7 +381,13 @@ export function createWebApplication(options) {
         const sessions = selectedGroup?.sessions || [];
         sendJson(response, 200, {
           version,
-          repository: context.project,
+          repository: selectedGroup
+            ? {
+                name: selectedGroup.name,
+                path: selectedGroup.path,
+                branch: selectedGroup.branch,
+              }
+            : { ...context.project, branch: await currentBranchFn(root) },
           projects: sessionGroups.map(({ sessions: _sessions, activeSessionIds: _activeIds, ...project }) => project),
           sessionGroups,
           executionMode: config.executionMode || "auto",
