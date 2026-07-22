@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { attachImage, resolveAttachments } from "./attachments.js";
-import { capacitySummary, eligibleAgents, mergeCapacitySettings } from "./capacity.js";
 import { loadConfig, saveConfig } from "./config.js";
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
@@ -81,13 +80,19 @@ function serializableAttachments(attachments) {
 
 function healthyAgentNames(checks, config) {
   const configured = new Set(Object.keys(config.agents || {}));
-  return checks.filter((check) => check.ok && configured.has(check.name)).map((check) => check.name);
+  return checks
+    .filter((check) => (
+      check.ok &&
+      configured.has(check.name) &&
+      config.agents?.[check.name]?.enabled !== false
+    ))
+    .map((check) => check.name);
 }
 
 function selectStrategist(config, agents) {
   if (agents.includes(config.strategist)) return config.strategist;
   if (agents.length) return agents[0];
-  throw new Error("no installed agent CLI has usable capacity");
+  throw new Error("no installed and enabled agent CLI is available");
 }
 
 function extensionForMimeType(mimeType) {
@@ -227,7 +232,7 @@ export function createWebApplication(options) {
     let config = await loadConfigFn(context.root);
     const checks = await runDoctorFn(config, context.root);
     const healthy = healthyAgentNames(checks, config);
-    const agents = eligibleAgents(healthy, config);
+    const agents = healthy;
     const strategist = selectStrategist(config, agents);
     const workerAgents = selectWorkerAgents(agents, strategist, config.workerMode);
     const attachments = await resolveAttachmentsFn(context.root, attachmentPaths);
@@ -376,9 +381,8 @@ export function createWebApplication(options) {
           executionMode: config.executionMode || "auto",
           strategist: config.strategist,
           workerMode: config.workerMode,
+          agents: Object.keys(config.agents || {}),
           checks,
-          capacity: capacitySummary(config, checks),
-          excludeExhausted: config.capacity?.excludeExhausted !== false,
           sessions,
           activeSessionIds: selectedGroup?.activeSessionIds || [],
         });
@@ -442,15 +446,11 @@ export function createWebApplication(options) {
           ...config,
           executionMode,
           strategist,
-          capacity: mergeCapacitySettings(config, input.capacity || config.capacity),
         };
         await saveConfigFn(root, next);
-        const checks = await runDoctorFn(next, root);
         sendJson(response, 200, {
           executionMode: next.executionMode,
           strategist: next.strategist,
-          capacity: capacitySummary(next, checks),
-          excludeExhausted: next.capacity.excludeExhausted,
         });
         return;
       }
@@ -477,7 +477,7 @@ export function createWebApplication(options) {
         const executionMode = input.executionMode === "manual" ? "manual" : "auto";
         const config = await loadConfigFn(root);
         const checks = await runDoctorFn(config, root);
-        const agents = eligibleAgents(healthyAgentNames(checks, config), config);
+        const agents = healthyAgentNames(checks, config);
         const strategist = selectStrategist(config, agents);
         const session = await sessionStore.create({
           goal,

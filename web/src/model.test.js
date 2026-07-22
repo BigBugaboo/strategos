@@ -1,32 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  availableAgentNames,
   historyDate,
   mergeSessionEvents,
-  quotaLabel,
   sessionActivityState,
   sessionTaskState,
   shouldSubmitComposerKey,
   sortSidebarSessions,
 } from "./model.js";
-
-describe("capacity presentation", () => {
-  it("labels exhausted and unknown capacity without inventing a percentage", () => {
-    expect(quotaLabel({ state: "exhausted", remainingPercent: 0 })).toBe("No quota — off");
-    expect(quotaLabel({ state: "unknown", remainingPercent: null })).toBe("Unknown");
-    expect(quotaLabel({ state: "unknown", remainingPercent: 72 })).toBe("Unknown");
-  });
-
-  it("returns only installed and eligible agents", () => {
-    expect(
-      availableAgentNames([
-        { name: "claude", installed: true, eligible: true },
-        { name: "codex", installed: false, eligible: false },
-        { name: "copilot", installed: true, eligible: false },
-      ]),
-    ).toEqual(["claude"]);
-  });
-});
 
 describe("composer keyboard behavior", () => {
   it("submits a plain Enter but keeps IME confirmation and Shift+Enter in the editor", () => {

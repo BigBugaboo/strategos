@@ -82,12 +82,8 @@ input:focus-visible {
   grid-template-rows: 64px minmax(0, 1fr);
   background: var(--bg);
 }
-.app-shell.has-capacity-notice {
-  grid-template-rows: 64px 36px minmax(0, 1fr);
-}
 .topbar {
-  display: grid;
-  grid-template-columns: 270px minmax(600px, 1fr);
+  display: flex;
   align-items: center;
   border-bottom: 1px solid var(--line);
   background: rgba(7, 14, 22, 0.8);
@@ -218,52 +214,6 @@ input:focus-visible {
   border-color: #7568d8;
   background: #6658c7;
 }
-.quota-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
-  gap: clamp(24px, 4vw, 56px);
-  padding-left: 6px;
-}
-.quota-label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 7px;
-  font-size: 13px;
-}
-.quota-label span {
-  color: #aab2bf;
-}
-.quota-label strong {
-  color: #b7bec8;
-  font-weight: 500;
-}
-.quota-off .quota-label strong {
-  color: #ff615b;
-}
-.quota-track {
-  height: 2px;
-  background: #3f4854;
-  overflow: hidden;
-}
-.quota-track span {
-  display: block;
-  height: 100%;
-}
-.capacity-notice {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: #9ca6b4;
-  font-size: 13px;
-  border-bottom: 1px solid var(--line);
-  background: #0c1621;
-}
-.capacity-notice svg {
-  width: 16px;
-  height: 16px;
-}
 .workspace {
   min-height: 0;
   display: grid;
@@ -281,11 +231,17 @@ input:focus-visible {
   background: #0d1621;
   padding: 16px 12px 14px;
 }
-.sidebar nav {
+.sidebar-primary-nav {
   display: grid;
   gap: 5px;
   padding: 0 0 20px;
   border-bottom: 1px solid var(--line);
+}
+.sidebar-footer-nav {
+  display: grid;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 .sidebar button {
   border: 0;
@@ -1474,33 +1430,6 @@ kbd {
   padding: 0 10px;
   font-size: 11px;
 }
-.capacity-settings {
-  padding: 26px 0;
-}
-.capacity-settings h2 {
-  margin: 0;
-  color: #d3d8df;
-  font-size: 13px;
-}
-.capacity-settings > p {
-  margin: 7px 0 18px;
-  color: #758190;
-  font-size: 10px;
-  line-height: 1.5;
-}
-.capacity-setting {
-  display: grid;
-  grid-template-columns: 10px minmax(80px, 1fr) 130px 100px;
-  align-items: center;
-  gap: 11px;
-  min-height: 48px;
-  border-top: 1px solid var(--line-soft);
-}
-.capacity-setting strong {
-  color: #b8c0ca;
-  font-size: 11px;
-  text-transform: capitalize;
-}
 .settings-actions {
   display: flex;
   align-items: center;
@@ -1518,12 +1447,6 @@ kbd {
   .inspector {
     display: none;
   }
-  .topbar {
-    grid-template-columns: 210px 1fr;
-  }
-  .quota-strip {
-    gap: 20px;
-  }
 }
 
 @keyframes spin {
@@ -1540,26 +1463,13 @@ kbd {
   .inspector {
     display: none;
   }
-  .topbar {
-    grid-template-columns: 240px 1fr;
-  }
 }
 @media (max-width: 740px) {
   .app-shell {
     grid-template-rows: auto minmax(0, 1fr);
   }
-  .app-shell.has-capacity-notice {
-    grid-template-rows: auto auto minmax(0, 1fr);
-  }
   .topbar {
-    grid-template-columns: 1fr;
-    gap: 16px;
     padding: 16px;
-  }
-  .quota-strip {
-    width: 100%;
-    gap: 14px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .workspace,
   .app-shell.inspector-closed .workspace {
@@ -1602,14 +1512,6 @@ kbd {
     grid-template-columns: 1fr;
     gap: 12px;
   }
-  .capacity-setting {
-    grid-template-columns: 10px minmax(64px, 1fr) 100px;
-  }
-  .capacity-setting input {
-    grid-column: 2 / -1;
-    width: 100%;
-    margin-bottom: 10px;
-  }
   .project-compact {
     position: relative;
     display: grid;
@@ -1636,14 +1538,6 @@ kbd {
     position: fixed;
     top: 88px;
     left: 76px;
-  }
-  .quota-label {
-    display: grid;
-    gap: 3px;
-  }
-  .quota-label strong,
-  .quota-label span {
-    font-size: 9px;
   }
 }
 

@@ -18,14 +18,6 @@ export const DEFAULT_CONFIG = Object.freeze({
     codex: { command: "codex", extraArgs: [] },
     copilot: { command: "copilot", extraArgs: [] },
   },
-  capacity: {
-    excludeExhausted: true,
-    agents: {
-      claude: { state: "unknown", remainingPercent: null, resetsAt: null, source: "unknown" },
-      codex: { state: "unknown", remainingPercent: null, resetsAt: null, source: "unknown" },
-      copilot: { state: "unknown", remainingPercent: null, resetsAt: null, source: "unknown" },
-    },
-  },
 });
 
 export async function loadConfig(root) {
@@ -36,19 +28,13 @@ export async function loadConfig(root) {
   } catch (error) {
     if (error.code !== "ENOENT") throw new Error(`cannot read ${file}: ${error.message}`);
   }
+  const userConfig = { ...user };
+  delete userConfig.capacity;
   return {
     ...DEFAULT_CONFIG,
-    ...user,
-    agents: Object.fromEntries(Object.entries({ ...DEFAULT_CONFIG.agents, ...(user.agents || {}) })
+    ...userConfig,
+    agents: Object.fromEntries(Object.entries({ ...DEFAULT_CONFIG.agents, ...(userConfig.agents || {}) })
       .map(([name, value]) => [name, { ...DEFAULT_CONFIG.agents[name], ...value }])),
-    capacity: {
-      ...DEFAULT_CONFIG.capacity,
-      ...(user.capacity || {}),
-      agents: {
-        ...DEFAULT_CONFIG.capacity.agents,
-        ...(user.capacity?.agents || {}),
-      },
-    },
   };
 }
 

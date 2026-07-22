@@ -55,14 +55,6 @@ async function fixture(t, overrides = {}) {
     strategist: "codex",
     workerMode: "hybrid",
     agents: { claude: {}, codex: {}, copilot: {} },
-    capacity: {
-      excludeExhausted: true,
-      agents: {
-        claude: { state: "available", remainingPercent: 72 },
-        codex: { state: "available", remainingPercent: 18 },
-        copilot: { state: "exhausted", remainingPercent: 0 },
-      },
-    },
   };
   const sessionStore = memorySessionStore(root);
   const secondSession = {
@@ -127,7 +119,7 @@ async function fixture(t, overrides = {}) {
   return { ...result, root, secondRoot, planningRoots };
 }
 
-test("Web bootstrap exposes repository, sessions, and eligible capacity", async (t) => {
+test("Web bootstrap exposes repository, sessions, and configured agents", async (t) => {
   const { url, root } = await fixture(t);
   const response = await fetch(`${url}/api/bootstrap`);
   assert.equal(response.status, 200);
@@ -136,7 +128,7 @@ test("Web bootstrap exposes repository, sessions, and eligible capacity", async 
   assert.equal(body.projects.length, 2);
   assert.equal(body.sessionGroups.length, 2);
   assert.equal(body.sessionGroups[1].sessions[0].goal, "Work in the second project");
-  assert.equal(body.capacity.find((agent) => agent.name === "copilot").eligible, false);
+  assert.deepEqual(body.agents, ["claude", "codex", "copilot"]);
   assert.deepEqual(body.sessions, []);
 });
 
@@ -215,7 +207,7 @@ test("Web planning persists the headless strategist activity", async (t) => {
   assert.equal(session.status, "planned");
   const planning = session.events.find((event) => event.type === "planning_started");
   assert.equal(planning.strategist, "codex");
-  assert.deepEqual(planning.workerAgents, ["claude", "codex"]);
+  assert.deepEqual(planning.workerAgents, ["claude", "codex", "copilot"]);
   assert.match(planning.at, /^2026-/);
 });
 

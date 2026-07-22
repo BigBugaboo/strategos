@@ -22,7 +22,6 @@ import {
 import {
   historyDate,
   mergeSessionEvents,
-  quotaLabel,
   sessionActivityState,
   shouldSubmitComposerKey,
   sortSidebarSessions,
@@ -298,30 +297,6 @@ function SessionSidebar({
   );
 }
 
-function AgentQuota({ agent }) {
-  const value = agent.remainingPercent;
-  const exhausted = agent.state === "exhausted";
-  const label = quotaLabel(agent);
-  return (
-    <div
-      className={`quota ${exhausted ? "quota-off" : ""}`}
-      role="progressbar"
-      aria-label={`${agent.name} capacity: ${label}`}
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-valuenow={value ?? undefined}
-    >
-      <div className="quota-label">
-        <span>{agent.name[0].toUpperCase() + agent.name.slice(1)}</span>
-        <strong>{label}</strong>
-      </div>
-      <div className="quota-track">
-        <span style={{ width: `${value ?? 0}%`, backgroundColor: AGENT_COLORS[agent.name] }} />
-      </div>
-    </div>
-  );
-}
-
 function EmptyChat() {
   return (
     <div className="empty-chat">
@@ -359,13 +334,10 @@ function PlanningIndicator({ strategist }) {
   );
 }
 
-function SessionChat({ session, capacity, liveEvents }) {
+function SessionChat({ session, liveEvents }) {
   if (!session) return <EmptyChat />;
   const plan = session.plan;
   const participants = [...new Set((plan?.tasks || []).map((task) => task.agent))];
-  const excluded = capacity
-    .filter((agent) => !agent.eligible && agent.installed)
-    .map((agent) => agent.name);
   return (
     <div className="conversation">
       <article className="message user-message">
@@ -426,12 +398,6 @@ function SessionChat({ session, capacity, liveEvents }) {
                     ? "Session stopped before planning completed."
                     : "Session updated."}
             </p>
-            {excluded.length > 0 && (
-              <p className="subtle">
-                {excluded.map((name) => name[0].toUpperCase() + name.slice(1)).join(", ")}{" "}
-                {excluded.length > 1 ? "are" : "is"} excluded (out of quota).
-              </p>
-            )}
             <p className={`run-state state-${session.status}`}>
               {session.status === "interrupted" ? (
                 <StopCircle weight="fill" />
@@ -493,31 +459,14 @@ function RunsView({ sessions, repository, onSelect }) {
 function SettingsView({ data, onSaved }) {
   const [mode, setMode] = useState(data.executionMode);
   const [strategist, setStrategist] = useState(data.strategist);
-  const [capacity, setCapacity] = useState(() => data.capacity.map((agent) => ({ ...agent })));
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
-  const dirty =
-    mode !== data.executionMode ||
-    strategist !== data.strategist ||
-    JSON.stringify(capacity) !== JSON.stringify(data.capacity);
+  const dirty = mode !== data.executionMode || strategist !== data.strategist;
   const save = async (event) => {
     event.preventDefault();
     const payload = {
       executionMode: mode,
       strategist,
-      capacity: {
-        excludeExhausted: true,
-        agents: Object.fromEntries(
-          capacity.map((agent) => [
-            agent.name,
-            {
-              state: agent.state,
-              remainingPercent: agent.remainingPercent,
-              resetsAt: agent.resetsAt || null,
-            },
-          ]),
-        ),
-      },
     };
     setSaving(true);
     setMessage("Saving…");
@@ -536,7 +485,7 @@ function SettingsView({ data, onSaved }) {
       <header>
         <p className="eyebrow">Preferences</p>
         <h1>Orchestration</h1>
-        <p>Choose how Strategos plans work and which local CLIs are eligible.</p>
+        <p>Choose how Strategos plans work and which local CLI leads planning.</p>
       </header>
       <form onSubmit={save}>
         <div className="settings-row">
@@ -561,71 +510,10 @@ function SettingsView({ data, onSaved }) {
             value={strategist}
             onChange={(event) => setStrategist(event.target.value)}
           >
-            {capacity.map((agent) => (
-              <option key={agent.name}>{agent.name}</option>
+            {data.agents.map((agent) => (
+              <option key={agent}>{agent}</option>
             ))}
           </select>
-        </div>
-        <div className="capacity-settings">
-          <h2>CLI capacity</h2>
-          <p>
-            CLIs do not expose one shared quota API. Record the latest known state; exhausted CLIs
-            are excluded automatically.
-          </p>
-          {capacity.map((agent, index) => (
-            <div className="capacity-setting" key={agent.name}>
-              <span className="agent-dot" style={{ background: AGENT_COLORS[agent.name] }} />
-              <strong>{agent.name}</strong>
-              <select
-                aria-label={`${agent.name} capacity state`}
-                value={agent.state}
-                onChange={(event) =>
-                  setCapacity((items) =>
-                    items.map((item, itemIndex) =>
-                      itemIndex === index
-                        ? {
-                            ...item,
-                            state: event.target.value,
-                            remainingPercent:
-                              event.target.value === "exhausted"
-                                ? 0
-                                : event.target.value === "unknown"
-                                  ? null
-                                  : item.remainingPercent,
-                          }
-                        : item,
-                    ),
-                  )
-                }
-              >
-                <option value="available">Available</option>
-                <option value="unknown">Unknown</option>
-                <option value="exhausted">Exhausted</option>
-              </select>
-              <input
-                aria-label={`${agent.name} remaining percent`}
-                type="number"
-                min="0"
-                max="100"
-                placeholder="% left"
-                value={agent.remainingPercent ?? ""}
-                onChange={(event) =>
-                  setCapacity((items) =>
-                    items.map((item, itemIndex) =>
-                      itemIndex === index
-                        ? {
-                            ...item,
-                            state: event.target.value === "" ? "unknown" : "available",
-                            remainingPercent:
-                              event.target.value === "" ? null : Number(event.target.value),
-                          }
-                        : item,
-                    ),
-                  )
-                }
-              />
-            </div>
-          ))}
         </div>
         <div className="settings-actions">
           <button type="submit" disabled={saving || !dirty}>
@@ -1133,12 +1021,9 @@ export function App() {
         )}
       </div>
     );
-  const exhausted = data.capacity.filter((agent) => agent.installed && !agent.eligible);
   const showInspector = inspectorOpen && selected && view === "chat";
   return (
-    <div
-      className={`app-shell ${exhausted.length ? "has-capacity-notice" : ""} ${showInspector ? "" : "inspector-closed"}`}
-    >
+    <div className={`app-shell ${showInspector ? "" : "inspector-closed"}`}>
       <header className="topbar">
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
@@ -1148,24 +1033,10 @@ export function App() {
           </div>
           <small>v{data.version}</small>
         </div>
-        <div className="quota-strip">
-          {data.capacity.map((agent) => (
-            <AgentQuota key={agent.name} agent={agent} />
-          ))}
-        </div>
       </header>
-      {exhausted.length > 0 && (
-        <div className="capacity-notice">
-          <WarningCircle />
-          {exhausted
-            .map((agent) => agent.name[0].toUpperCase() + agent.name.slice(1))
-            .join(", ")}{" "}
-          {exhausted.length > 1 ? "are" : "is"} out of quota and will not be used.
-        </div>
-      )}
       <div className="workspace">
         <aside className="sidebar">
-          <nav>
+          <nav className="sidebar-primary-nav">
             <button
               type="button"
               className={view === "chat" && !selected ? "active" : ""}
@@ -1187,18 +1058,6 @@ export function App() {
               <Play />
               Runs
             </button>
-            <button
-              type="button"
-              className={view === "settings" ? "active" : ""}
-              aria-current={view === "settings" ? "page" : undefined}
-              onClick={() => {
-                setView("settings");
-                setModeMenuOpen(false);
-              }}
-            >
-              <GearSix />
-              Settings
-            </button>
           </nav>
           <SessionSidebar
             repository={data.repository}
@@ -1213,6 +1072,20 @@ export function App() {
             onTogglePin={togglePin}
             onAdd={addProject}
           />
+          <nav className="sidebar-footer-nav">
+            <button
+              type="button"
+              className={view === "settings" ? "active" : ""}
+              aria-current={view === "settings" ? "page" : undefined}
+              onClick={() => {
+                setView("settings");
+                setModeMenuOpen(false);
+              }}
+            >
+              <GearSix />
+              Settings
+            </button>
+          </nav>
         </aside>
         <main className="main-panel">
           {selected && view === "chat" && !showInspector && (
@@ -1235,7 +1108,7 @@ export function App() {
           ) : view === "settings" ? (
             <SettingsView data={data} onSaved={setData} />
           ) : (
-            <SessionChat session={selected} capacity={data.capacity} liveEvents={liveEvents} />
+            <SessionChat session={selected} liveEvents={liveEvents} />
           )}
           {view === "chat" && (
             <div className="composer-wrap">

@@ -26,9 +26,14 @@ test("hybrid worker participation is the default and can be separated", async ()
   await fs.mkdir(path.join(root, ".strategos"));
   await fs.writeFile(
     path.join(root, ".strategos", "config.json"),
-    `${JSON.stringify({ workerMode: "separated", executionMode: "manual" })}\n`,
+    `${JSON.stringify({
+      workerMode: "separated",
+      executionMode: "manual",
+      capacity: { excludeExhausted: true },
+    })}\n`,
     "utf8",
   );
   assert.equal((await loadConfig(root)).workerMode, "separated");
   assert.equal((await loadConfig(root)).executionMode, "manual");
+  assert.equal(Object.hasOwn(await loadConfig(root), "capacity"), false);
 });

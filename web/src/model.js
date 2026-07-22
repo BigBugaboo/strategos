@@ -1,14 +1,3 @@
-export function quotaLabel(agent) {
-  if (agent.state === "exhausted") return "No quota — off";
-  if (agent.state === "unknown") return "Unknown";
-  if (agent.remainingPercent === null || agent.remainingPercent === undefined) return "Unknown";
-  return `${agent.remainingPercent}% left`;
-}
-
-export function availableAgentNames(capacity) {
-  return capacity.filter((agent) => agent.installed && agent.eligible).map((agent) => agent.name);
-}
-
 export function shouldSubmitComposerKey(event, composing = false) {
   return Boolean(
     event?.key === "Enter" &&

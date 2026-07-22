@@ -9,7 +9,6 @@ import {
   resolveAttachments,
 } from "./attachments.js";
 import { initializeProject, loadConfig } from "./config.js";
-import { eligibleAgents } from "./capacity.js";
 import { runDoctor } from "./doctor.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
@@ -238,12 +237,13 @@ export async function startConsole(options) {
   let shouldExit = false;
   let currentExecutionMode = normalizeExecutionMode(config.executionMode);
   const configuredAgents = () => Object.keys(config.agents || {});
-  const availableAgents = () => eligibleAgents(
-    checks
-      .filter((check) => check.ok && configuredAgents().includes(check.name))
-      .map((check) => check.name),
-    config,
-  );
+  const availableAgents = () => checks
+    .filter((check) => (
+      check.ok &&
+      configuredAgents().includes(check.name) &&
+      config.agents?.[check.name]?.enabled !== false
+    ))
+    .map((check) => check.name);
   let currentStrategist = config.strategist || "codex";
   if (!availableAgents().includes(currentStrategist) && availableAgents().length) {
     currentStrategist = availableAgents()[0];
