@@ -45,6 +45,12 @@ test("stores durable sessions under Git metadata and restores checkpoints", asyn
   assert.equal((await store.latestResumable()).events[0].task.id, "release-notes");
   assert.equal((await store.latestResumable()).events[0].task.sessionId, "11111111-1111-4111-8111-111111111111");
   assert.equal((await store.latestResumable()).attachments[0].id, "image-1");
+
+  const updatedAt = session.updatedAt;
+  session = await store.setPinned(session, true);
+  assert.equal(session.pinned, true);
+  assert.equal(session.updatedAt, updatedAt);
+  assert.equal((await store.load(session.id)).pinned, true);
 });
 
 test("completed sessions remain inspectable but are not offered for recovery", async () => {
