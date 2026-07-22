@@ -130,3 +130,17 @@ export async function captureWorktreeChanges(
 export async function currentHead(root) {
   return git(root, ["rev-parse", "HEAD"]);
 }
+
+export async function currentBranch(root) {
+  return (await git(root, ["branch", "--show-current"])) || "detached HEAD";
+}
+
+export async function listBranches(root) {
+  const output = await git(root, [
+    "for-each-ref",
+    "--format=%(refname:short)",
+    "--sort=-committerdate",
+    "refs/heads",
+  ]);
+  return output ? output.split("\n").filter(Boolean) : [];
+}

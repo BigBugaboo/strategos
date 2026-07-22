@@ -11,7 +11,9 @@ import {
   FileCode,
   FolderOpen,
   GearSix,
+  GitBranch,
   Info,
+  Laptop,
   Paperclip,
   Play,
   PlusSquare,
@@ -522,6 +524,142 @@ function SessionManager({ groups, onClose, onChanged }) {
           </p>
         )}
       </section>
+    </div>
+  );
+}
+
+function ProjectContextBar({ repository, projects, disabled, onSelectProject, onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [projectPath, setProjectPath] = useState("");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const control = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeMenu = (event) => {
+      if (event.key === "Escape") setOpen(false);
+      if (event.type === "pointerdown" && !control.current?.contains(event.target)) setOpen(false);
+    };
+    globalThis.addEventListener("keydown", closeMenu);
+    globalThis.addEventListener("pointerdown", closeMenu);
+    return () => {
+      globalThis.removeEventListener("keydown", closeMenu);
+      globalThis.removeEventListener("pointerdown", closeMenu);
+    };
+  }, [open]);
+
+  const chooseProject = async (project) => {
+    if (project.path !== repository.path) await onSelectProject(project.path);
+    setOpen(false);
+    setAdding(false);
+    setMessage("");
+  };
+
+  const addProject = async (event) => {
+    event.preventDefault();
+    if (!projectPath.trim() || saving) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await onAdd(projectPath.trim());
+      setProjectPath("");
+      setAdding(false);
+      setOpen(false);
+    } catch (requestError) {
+      setMessage(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div ref={control} className="project-context-bar">
+      <button
+        type="button"
+        className="project-context-trigger"
+        aria-label={`Current project: ${repository.name}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => {
+          setOpen((value) => !value);
+          setAdding(false);
+          setMessage("");
+        }}
+      >
+        <FolderOpen />
+        <span>{repository.name}</span>
+        <CaretDown />
+      </button>
+      <span className="project-context-meta" title="Execution environment">
+        <Laptop />
+        <span>Local</span>
+      </span>
+      <span
+        className="project-context-meta branch"
+        title={repository.branch || "Branch unavailable"}
+      >
+        <GitBranch />
+        <span>{repository.branch || "Branch unavailable"}</span>
+      </span>
+      {open && (
+        <div className="project-context-menu">
+          <div className="project-context-menu-heading">Projects</div>
+          <div className="project-context-options" role="menu" aria-label="Select project">
+            {projects.map((project) => {
+              const current = project.path === repository.path;
+              return (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={current}
+                  disabled={disabled || project.unavailable}
+                  key={project.path}
+                  onClick={() => void chooseProject(project).catch(() => {})}
+                >
+                  <FolderOpen weight={current ? "fill" : "regular"} />
+                  <span>
+                    <strong>{project.name}</strong>
+                    <small>{project.unavailable ? "Unavailable" : shortPath(project.path)}</small>
+                  </span>
+                  {current && <CheckCircle weight="fill" />}
+                </button>
+              );
+            })}
+          </div>
+          <div className="project-context-menu-footer">
+            {adding ? (
+              <form onSubmit={addProject}>
+                <label htmlFor="composer-project-path">Local repository path</label>
+                <input
+                  id="composer-project-path"
+                  value={projectPath}
+                  disabled={saving}
+                  placeholder="/Users/you/projects/repository"
+                  onChange={(event) => setProjectPath(event.target.value)}
+                  autoFocus
+                />
+                {message && <p role="alert">{message}</p>}
+                <div>
+                  <button type="button" onClick={() => setAdding(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={!projectPath.trim() || saving}>
+                    {saving ? "Adding…" : "Add project"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button type="button" onClick={() => setAdding(true)}>
+                <PlusSquare />
+                Add local project
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1198,6 +1336,7 @@ export function App() {
   const [liveEvents, setLiveEvents] = useState([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [switchingProject, setSwitchingProject] = useState(false);
   const [stoppingIds, setStoppingIds] = useState([]);
   const [expandedProjects, setExpandedProjects] = useState(() => new Set());
   const [inspectorOpen, setInspectorOpen] = useState(true);
@@ -1300,8 +1439,6 @@ export function App() {
         if (!shouldNotifyForEvent(data.notifications, parsed)) return;
         const notificationKey = `${projectPath}:${sessionId}`;
         if (notifiedSessions.current.has(notificationKey)) return;
-        if (notifiedSessions.current.size >= 200) notifiedSessions.current.clear();
-        notifiedSessions.current.add(notificationKey);
         const outcome = notificationOutcome(parsed);
         const session = sessions.get(sessionId);
         const title =
@@ -1310,15 +1447,21 @@ export function App() {
             : parsed.type === "session_interrupted"
               ? "Task interrupted"
               : "Task failed";
-        const notification = new globalThis.Notification(`Strategos · ${title}`, {
-          body: session?.goal || `A task in ${data.repository.name} reached a terminal state.`,
-          icon: "/strategos-icon.png",
-          tag: `strategos-${sessionId}`,
-        });
-        notification.onclick = () => {
-          globalThis.focus();
-          notification.close();
-        };
+        try {
+          const notification = new globalThis.Notification(`Strategos · ${title}`, {
+            body: session?.goal || `A task in ${data.repository.name} reached a terminal state.`,
+            icon: "/strategos-icon.png",
+            tag: `strategos-${sessionId}`,
+          });
+          if (notifiedSessions.current.size >= 200) notifiedSessions.current.clear();
+          notifiedSessions.current.add(notificationKey);
+          notification.onclick = () => {
+            globalThis.focus?.();
+            notification.close();
+          };
+        } catch {
+          // Browser notification delivery is best effort.
+        }
       };
       return source;
     });
@@ -1346,6 +1489,7 @@ export function App() {
     const previousPath = data.repository.path;
     const cached = sidebarGroupsFor(data).find((group) => group.path === projectPath);
     projectSwitch.current = projectPath;
+    setSwitchingProject(!cached || cached.unavailable);
     setError("");
     setLiveEvents([]);
     setModeMenuOpen(false);
@@ -1385,7 +1529,17 @@ export function App() {
       setError(requestError.message);
       await refresh(previousPath, true).catch(() => {});
       throw requestError;
+    } finally {
+      if (projectSwitch.current === projectPath) setSwitchingProject(false);
     }
+  };
+
+  const addProject = async (projectPath) => {
+    const result = await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ path: projectPath }),
+    });
+    await selectProject(result.project.path);
   };
 
   const selectSession = (session) => {
@@ -1711,7 +1865,16 @@ export function App() {
             <SessionChat session={selected} liveEvents={liveEvents} />
           )}
           {view === "chat" && (
-            <div className="composer-wrap">
+            <div className={`composer-wrap ${selected ? "" : "with-project-context"}`}>
+              {!selected && (
+                <ProjectContextBar
+                  repository={data.repository}
+                  projects={sidebarGroupsFor(data)}
+                  disabled={switchingProject}
+                  onSelectProject={selectProject}
+                  onAdd={addProject}
+                />
+              )}
               <form
                 className="composer"
                 onSubmit={(event) => {
@@ -1849,7 +2012,6 @@ export function App() {
                   </button>
                 </div>
                 <div className="composer-hint">
-                  <span>{shortPath(data.repository.path)}</span>
                   <span>
                     <kbd>Enter</kbd> send · <kbd>Shift Enter</kbd> new line · <kbd>⌘ V</kbd> paste
                     image

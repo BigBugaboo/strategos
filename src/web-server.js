@@ -8,6 +8,7 @@ import { loadConfig, normalizeNotificationSettings, saveConfig } from "./config.
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
 import { loadSessionTaskDiff } from "./diffs.js";
+import { currentBranch, listBranches } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { createProjectRegistry } from "./projects.js";
@@ -60,6 +61,7 @@ function publicSession(session) {
     strategist: session.strategist,
     workerAgents: session.workerAgents || [],
     executionMode: session.executionMode,
+    baseRef: session.baseRef || null,
     attachments: (session.attachments || []).map(({ path: _path, ...attachment }) => attachment),
     status: session.status,
     attempts: session.attempts,
@@ -136,6 +138,8 @@ export function createWebApplication(options) {
   const attachImageFn = options.attachImageFn || attachImage;
   const resolveAttachmentsFn = options.resolveAttachmentsFn || resolveAttachments;
   const createSessionStoreFn = options.createSessionStoreFn || createSessionStore;
+  const currentBranchFn = options.currentBranchFn || currentBranch;
+  const listBranchesFn = options.listBranchesFn || listBranches;
   const projectRegistry = options.projectRegistry || createProjectRegistry({ initialRoot });
   const webControl = options.webControl;
   const sessionStores = new Map();
@@ -159,9 +163,13 @@ export function createWebApplication(options) {
     return Promise.all(projects.map(async (project) => {
       try {
         const projectSessionContext = await projectContext(project.path);
-        const sessions = await projectSessionContext.sessionStore.list({ limit: 30 });
+        const [sessions, branch] = await Promise.all([
+          projectSessionContext.sessionStore.list({ limit: 30 }),
+          currentBranchFn(project.path),
+        ]);
         return {
           ...project,
+          branch,
           sessions: sessions.map(publicSession),
           activeSessionIds: [...active.keys()]
             .filter((key) => key.startsWith(`${project.path}\u0000`))
@@ -399,7 +407,13 @@ export function createWebApplication(options) {
         const sessions = selectedGroup?.sessions || [];
         sendJson(response, 200, {
           version,
-          repository: context.project,
+          repository: selectedGroup
+            ? {
+                name: selectedGroup.name,
+                path: selectedGroup.path,
+                branch: selectedGroup.branch,
+              }
+            : { ...context.project, branch: await currentBranchFn(root) },
           projects: sessionGroups.map(({ sessions: _sessions, activeSessionIds: _activeIds, ...project }) => project),
           sessionGroups,
           executionMode: config.executionMode || "auto",

@@ -43,6 +43,15 @@ Opening the gear presents a centered `Manage sessions` dialog instead of changin
 - `git diff --check`: passed
 - Background runtime: HTTP 200 on port 4310 after the invoking terminal exited
 
+## Project context bar regression check
+
+- Missing-toolbar reference: `/var/folders/s4/zvr523712rzcdfswttvppw400000gn/T/codex-clipboard-e1f52b27-8e99-41f3-bbe1-85d3b19dc1a5.png`
+- Final v0.22.0 capture: `/private/tmp/strategos-v0.22.0-toolbar.jpg`
+- Side-by-side comparison: `/private/tmp/strategos-toolbar-comparison.jpg`
+- The final New task composer exposes the selected repository, local execution environment, and current Git branch directly above the input.
+- The project menu opens from the toolbar, identifies the active project, lists registered projects, and exposes the local-project registration action.
+- Browser diagnostics reported no console errors.
+
 No actionable P0, P1, or P2 findings remain for the requested session-management flow.
 
 final result: passed

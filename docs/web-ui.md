@@ -73,11 +73,10 @@ persist each control change immediately without a manual save action.
 ## Project context
 
 The repository used to start `strategos web` is the initial project. Use the
-Sessions section in the left sidebar to switch among registered local paths. Projects and
-Sessions are sibling navigation sections, matching the task-oriented hierarchy
-of modern coding-agent clients. The header shows compact active-project context;
-project switching remains in the left navigation; adding projects is not exposed
-as an in-app action. Saved work opens directly
+Sessions section in the left sidebar or the context bar above the New task
+composer to switch among registered local paths. The context bar shows the
+selected repository, local execution environment, and current Git branch, and
+also provides the local-project registration flow. Saved work opens directly
 from the project-grouped Sessions list rather than a separate Runs page.
 Strategos resolves each path to its Git root, rejects paths
 outside an accessible Git repository, and stores the local project list in
