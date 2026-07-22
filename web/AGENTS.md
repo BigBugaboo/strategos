@@ -12,6 +12,7 @@ When implementing from a selected generated mock, treat that image as the source
 - Use the selected Codex-style three-column layout: navigation plus session history on the left, chat and composer in the center, session/run context on the right.
 - Keep project selection in the left navigation at the same hierarchy as session history; reserve the header for compact active-project context.
 - Keep local repository paths out of the product header. Use the quiet slogan “One plan. Every agent aligned.” beneath the active title.
+- Keep the product header title fixed to “Strategos”; selecting a project or Session must not replace the software name.
 - Group sessions under collapsible project headings instead of maintaining separate project and history lists. Keep pinned sessions at the top of their project.
 - Put cross-project batch management behind the gear beside the Sessions heading. Archive is reversible, delete requires explicit confirmation, and active Sessions cannot be archived or deleted.
 - Keep the New task project context bar directly attached to the composer. It must show the repository, local execution, and selectable task base branch, and may register another local project.

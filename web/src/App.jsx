@@ -1890,7 +1890,7 @@ export function App() {
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
           <div>
-            <strong>{selected?.goal || data.repository.name}</strong>
+            <strong>Strategos</strong>
             <span>One plan. Every agent aligned.</span>
           </div>
           <small>v{data.version}</small>
