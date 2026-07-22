@@ -19,6 +19,14 @@ export function shouldSubmitComposerKey(event, composing = false) {
   );
 }
 
+export function sortSidebarSessions(sessions = []) {
+  return [...sessions].sort((left, right) => {
+    const pinned = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
+    if (pinned) return pinned;
+    return String(right.updatedAt || "").localeCompare(String(left.updatedAt || ""));
+  });
+}
+
 export function historyDate(value, now = new Date()) {
   if (!value) return "";
   const date = new Date(value);

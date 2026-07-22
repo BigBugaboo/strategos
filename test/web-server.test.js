@@ -33,6 +33,11 @@ function memorySessionStore(repository, initial = []) {
       sessions.set(updated.id, updated);
       return updated;
     },
+    async setPinned(session, pinned) {
+      const updated = { ...session, pinned };
+      sessions.set(updated.id, updated);
+      return updated;
+    },
     async appendEvent(session, event) {
       return this.update(session, { events: [...(session.events || []), event] });
     },
@@ -129,8 +134,28 @@ test("Web bootstrap exposes repository, sessions, and eligible capacity", async 
   const body = await response.json();
   assert.deepEqual(body.repository, { name: path.basename(root), path: root });
   assert.equal(body.projects.length, 2);
+  assert.equal(body.sessionGroups.length, 2);
+  assert.equal(body.sessionGroups[1].sessions[0].goal, "Work in the second project");
   assert.equal(body.capacity.find((agent) => agent.name === "copilot").eligible, false);
   assert.deepEqual(body.sessions, []);
+});
+
+test("Web sessions can be pinned without changing projects", async (t) => {
+  const { url, secondRoot } = await fixture(t);
+  const response = await fetch(`${url}/api/sessions/second-session/pin`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      "x-strategos-project": secondRoot,
+    },
+    body: JSON.stringify({ pinned: true }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).pinned, true);
+
+  const bootstrap = await fetch(`${url}/api/bootstrap`);
+  const groups = (await bootstrap.json()).sessionGroups;
+  assert.equal(groups.find((group) => group.path === secondRoot).sessions[0].pinned, true);
 });
 
 test("Web APIs scope sessions to the selected registered project", async (t) => {

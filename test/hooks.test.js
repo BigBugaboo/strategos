@@ -49,3 +49,11 @@ test("preserves an existing hooks path unless replacement is explicit", async ()
   assert.equal(replaced.status, "installed");
   assert.equal(hooksPath(root), ".githooks");
 });
+
+test("Git hooks isolate project checks from the invoking repository environment", async () => {
+  for (const name of ["pre-commit", "pre-push"]) {
+    const source = await fs.readFile(path.join(process.cwd(), ".githooks", name), "utf8");
+    assert.match(source, /git rev-parse --local-env-vars/);
+    assert.match(source, /unset "\$variable"/);
+  }
+});

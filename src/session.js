@@ -172,6 +172,11 @@ export function createSessionStore(root, options = {}) {
     async update(session, patch) {
       return save({ ...session, ...patch });
     },
+    async setPinned(session, pinned) {
+      const next = { ...session, pinned: Boolean(pinned) };
+      await writeAtomicJson(await fileFor(next.id), next);
+      return next;
+    },
     async appendEvent(session, event) {
       const at = timestamp();
       const events = [...(session.events || []), compactEvent(event, at)].slice(-MAX_EVENTS);
