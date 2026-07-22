@@ -76,8 +76,10 @@ The repository used to start `strategos web` is the initial project. Use the
 Sessions section in the left sidebar or the context bar above the New task
 composer to switch among registered local paths. The context bar shows the
 selected repository, local execution environment, and task base branch, and
-also provides the local-project registration flow. The branch control lists
-local branches and selects the base used to create new isolated worker worktrees.
+also provides the local-project registration flow. On macOS, Browse opens the
+native folder picker; manual path entry remains available on every platform.
+The branch control searches local branches, creates a branch from the selected
+base when needed, and selects the base used to create new isolated worker worktrees.
 Saved work opens directly
 from the project-grouped Sessions list rather than a separate Runs page.
 Strategos resolves each path to its Git root, rejects paths

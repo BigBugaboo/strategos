@@ -544,8 +544,16 @@ function ProjectContextBar({
   const [saving, setSaving] = useState(false);
   const [branches, setBranches] = useState(null);
   const [branchError, setBranchError] = useState("");
+  const [branchQuery, setBranchQuery] = useState("");
+  const [creatingBranch, setCreatingBranch] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const control = useRef(null);
   const branch = selectedBranch || repository.branch || "Branch unavailable";
+  const query = branchQuery.trim();
+  const filteredBranches = (branches || []).filter((name) =>
+    name.toLowerCase().includes(query.toLowerCase()),
+  );
+  const canCreateBranch = Boolean(query) && !(branches || []).includes(query);
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -586,9 +594,50 @@ function ProjectContextBar({
     setMessage("");
   };
 
+  // Reset the branch search whenever the branch menu is not open.
+  useEffect(() => {
+    if (menu !== "branch") {
+      setBranchQuery("");
+      setBranchError("");
+    }
+  }, [menu]);
+
   const chooseBranch = (name) => {
     onSelectBranch(name);
     setMenu(null);
+  };
+
+  const createBranchHandler = async () => {
+    if (!canCreateBranch || creatingBranch) return;
+    setCreatingBranch(true);
+    setBranchError("");
+    try {
+      const result = await api("/api/branches", {
+        method: "POST",
+        body: JSON.stringify({ name: query, from: selectedBranch || undefined }),
+      });
+      setBranches(result.branches || []);
+      onSelectBranch(result.created || query);
+      setMenu(null);
+    } catch (requestError) {
+      setBranchError(requestError.message);
+    } finally {
+      setCreatingBranch(false);
+    }
+  };
+
+  const browseDirectory = async () => {
+    if (browsing) return;
+    setBrowsing(true);
+    setMessage("");
+    try {
+      const result = await api("/api/pick-directory", { method: "POST", body: "{}" });
+      if (result.path) setProjectPath(result.path);
+    } catch (requestError) {
+      setMessage(requestError.message);
+    } finally {
+      setBrowsing(false);
+    }
   };
 
   const addProject = async (event) => {
@@ -676,14 +725,25 @@ function ProjectContextBar({
             {adding ? (
               <form onSubmit={addProject}>
                 <label htmlFor="composer-project-path">Local repository path</label>
-                <input
-                  id="composer-project-path"
-                  value={projectPath}
-                  disabled={saving}
-                  placeholder="/Users/you/projects/repository"
-                  onChange={(event) => setProjectPath(event.target.value)}
-                  autoFocus
-                />
+                <div className="project-context-browse-row">
+                  <input
+                    id="composer-project-path"
+                    value={projectPath}
+                    disabled={saving}
+                    placeholder="/Users/you/projects/repository"
+                    onChange={(event) => setProjectPath(event.target.value)}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="project-context-browse"
+                    disabled={saving || browsing}
+                    onClick={() => void browseDirectory()}
+                  >
+                    <FolderOpen />
+                    {browsing ? "Opening…" : "Browse"}
+                  </button>
+                </div>
                 {message && <p role="alert">{message}</p>}
                 <div>
                   <button type="button" onClick={() => setAdding(false)}>
@@ -709,33 +769,63 @@ function ProjectContextBar({
           <p className="project-context-menu-note">
             Agents create their isolated worktrees from this branch.
           </p>
+          <input
+            className="project-context-search"
+            type="text"
+            value={branchQuery}
+            placeholder="Search or create a branch…"
+            aria-label="Search or create a branch"
+            autoFocus
+            onChange={(event) => setBranchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && canCreateBranch) {
+                event.preventDefault();
+                void createBranchHandler();
+              }
+            }}
+          />
           <div className="project-context-options" role="menu" aria-label="Select base branch">
-            {branchError ? (
+            {branchError && (
               <p className="project-context-empty" role="alert">
                 {branchError}
               </p>
-            ) : !branches ? (
+            )}
+            {!branches && !branchError && (
               <p className="project-context-empty">Loading branches…</p>
-            ) : branches.length ? (
-              branches.map((name) => {
-                const current = name === branch;
-                return (
-                  <button
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={current}
-                    key={name}
-                    onClick={() => chooseBranch(name)}
-                  >
-                    <GitBranch weight={current ? "fill" : "regular"} />
-                    <span>
-                      <strong>{name}</strong>
-                    </span>
-                    {current && <CheckCircle weight="fill" />}
-                  </button>
-                );
-              })
-            ) : (
+            )}
+            {canCreateBranch && (
+              <button
+                type="button"
+                className="project-context-create"
+                disabled={creatingBranch}
+                onClick={() => void createBranchHandler()}
+              >
+                <PlusSquare />
+                <span>
+                  <strong>{creatingBranch ? "Creating…" : `Create branch “${query}”`}</strong>
+                  <small>Branch from {branch}</small>
+                </span>
+              </button>
+            )}
+            {filteredBranches.map((name) => {
+              const current = name === branch;
+              return (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={current}
+                  key={name}
+                  onClick={() => chooseBranch(name)}
+                >
+                  <GitBranch weight={current ? "fill" : "regular"} />
+                  <span>
+                    <strong>{name}</strong>
+                  </span>
+                  {current && <CheckCircle weight="fill" />}
+                </button>
+              );
+            })}
+            {branches && !filteredBranches.length && !canCreateBranch && (
               <p className="project-context-empty">No branches found.</p>
             )}
           </div>

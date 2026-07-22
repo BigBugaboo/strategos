@@ -112,6 +112,8 @@ async function fixture(t, overrides = {}) {
       projectRoot === secondRoot
         ? ["feature/second"]
         : ["main", "feature/review", "strategos/run/task"],
+    createBranchFn: overrides.createBranchFn,
+    pickDirectoryFn: overrides.pickDirectoryFn,
     projectRegistry,
     planWithStrategistFn: overrides.planWithStrategistFn || (async (input) => {
       planningRoots.push(input.root);
@@ -181,6 +183,34 @@ test("Web branch selection validates and persists the task base ref", async (t) 
   });
   assert.equal(rejected.status, 400);
   assert.match((await rejected.json()).error, /unknown branch/);
+});
+
+test("Web can create a base branch and open the local directory picker", async (t) => {
+  const createdBranches = [];
+  const { url, root, secondRoot } = await fixture(t, {
+    createBranchFn: async (...input) => createdBranches.push(input),
+    pickDirectoryFn: async () => secondRoot,
+  });
+
+  const created = await fetch(`${url}/api/branches`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "feature/web-picker", from: "feature/review" }),
+  });
+  assert.equal(created.status, 201);
+  assert.equal((await created.json()).created, "feature/web-picker");
+  assert.deepEqual(createdBranches, [[root, "feature/web-picker", "feature/review"]]);
+
+  const invalid = await fetch(`${url}/api/branches`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "invalid branch" }),
+  });
+  assert.equal(invalid.status, 400);
+
+  const picked = await fetch(`${url}/api/pick-directory`, { method: "POST" });
+  assert.equal(picked.status, 200);
+  assert.deepEqual(await picked.json(), { path: secondRoot });
 });
 
 test("Web settings persist normalized task notification preferences", async (t) => {

@@ -144,3 +144,8 @@ export async function listBranches(root) {
   ]);
   return output ? output.split("\n").filter(Boolean) : [];
 }
+
+export async function createBranch(root, name, startPoint = "HEAD") {
+  await git(root, ["branch", name, startPoint]);
+  return name;
+}
