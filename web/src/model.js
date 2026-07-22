@@ -16,6 +16,22 @@ export function sortSidebarSessions(sessions = []) {
   });
 }
 
+export function notificationOutcome(event) {
+  if (event?.type === "session_complete") {
+    return event.status === "succeeded" ? "success" : "failure";
+  }
+  if (["session_error", "session_interrupted"].includes(event?.type)) return "failure";
+  return null;
+}
+
+export function shouldNotifyForEvent(settings, event) {
+  if (!settings?.enabled) return false;
+  const outcome = notificationOutcome(event);
+  if (outcome === "success") return settings.onSuccess !== false;
+  if (outcome === "failure") return settings.onFailure !== false;
+  return false;
+}
+
 export function historyDate(value, now = new Date()) {
   if (!value) return "";
   const date = new Date(value);

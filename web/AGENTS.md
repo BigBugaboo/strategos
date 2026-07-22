@@ -14,6 +14,7 @@ When implementing from a selected generated mock, treat that image as the source
 - Group sessions under collapsible project headings instead of maintaining separate project and history lists. Keep pinned sessions at the top of their project.
 - Keep Settings anchored at the bottom of the left navigation; do not add a separate Runs module or “View all sessions” action because the project-grouped Sessions list is the navigation surface for saved work.
 - Keep the Settings action row separated from the final field divider with 24 pixels of vertical space.
+- Keep task notifications opt-in and project-scoped. Request browser permission only after an explicit user action, expose separate success and failure preferences, and explain that the Web UI must remain open for delivery.
 - Do not add provider quota controls or quota-based scheduling. CLI availability comes from local health checks and each agent's `enabled` configuration.
 - The primary experience is conversation-first. New task, Settings, session selection, attachments, Auto/Manual mode, Run, and Resume must remain functional.
 - Keep the new-task surface focused on the composer. Show the right-hand inspector only for a selected chat session, and let users collapse it without losing session state.

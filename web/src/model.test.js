@@ -2,9 +2,11 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   historyDate,
   mergeSessionEvents,
+  notificationOutcome,
   sessionActivityState,
   sessionTaskState,
   shouldSubmitComposerKey,
+  shouldNotifyForEvent,
   sortSidebarSessions,
 } from "./model.js";
 
@@ -29,6 +31,36 @@ describe("sidebar session ordering", () => {
         { id: "pinned-new", pinned: true, updatedAt: "2026-07-21T10:00:00.000Z" },
       ]).map((session) => session.id),
     ).toEqual(["pinned-new", "pinned-old", "recent", "older"]);
+  });
+});
+
+describe("task completion notifications", () => {
+  const enabled = { enabled: true, onSuccess: true, onFailure: true };
+
+  it("classifies terminal session events", () => {
+    expect(notificationOutcome({ type: "session_complete", status: "succeeded" })).toBe("success");
+    expect(notificationOutcome({ type: "session_complete", status: "failed" })).toBe("failure");
+    expect(notificationOutcome({ type: "session_error" })).toBe("failure");
+    expect(notificationOutcome({ type: "session_interrupted" })).toBe("failure");
+    expect(notificationOutcome({ type: "run_finished" })).toBeNull();
+  });
+
+  it("respects the master and per-outcome preferences", () => {
+    expect(shouldNotifyForEvent(enabled, { type: "session_complete", status: "succeeded" })).toBe(
+      true,
+    );
+    expect(
+      shouldNotifyForEvent(
+        { ...enabled, onSuccess: false },
+        { type: "session_complete", status: "succeeded" },
+      ),
+    ).toBe(false);
+    expect(shouldNotifyForEvent({ ...enabled, onFailure: false }, { type: "session_error" })).toBe(
+      false,
+    );
+    expect(shouldNotifyForEvent({ ...enabled, enabled: false }, { type: "session_error" })).toBe(
+      false,
+    );
   });
 });
 
