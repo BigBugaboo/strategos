@@ -158,6 +158,16 @@ export function createWebApplication(options) {
   };
   const contextKey = (context, sessionId) => `${context.root}\u0000${sessionId}`;
 
+  const resolveBaseRef = async (root, requested) => {
+    const value = typeof requested === "string" ? requested.trim() : "";
+    if (!value) return undefined;
+    const branches = await listBranchesFn(root);
+    if (!branches.includes(value)) {
+      throw Object.assign(new Error(`unknown branch: ${value}`), { status: 400 });
+    }
+    return value;
+  };
+
   const listSessionGroups = async () => {
     const projects = await projectRegistry.list();
     return Promise.all(projects.map(async (project) => {
@@ -240,8 +250,9 @@ export function createWebApplication(options) {
     }
   };
 
-  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", resumeSession, existingSession, signal }) => {
+  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", baseRef, resumeSession, existingSession, signal }) => {
     let config = await loadConfigFn(context.root);
+    if (baseRef) config = { ...config, baseRef };
     const checks = await runDoctorFn(config, context.root);
     const healthy = healthyAgentNames(checks, config);
     const agents = healthy;
@@ -576,26 +587,37 @@ export function createWebApplication(options) {
         }
         return;
       }
+      if (request.method === "GET" && pathname === "/api/branches") {
+        const [current, branches] = await Promise.all([
+          currentBranchFn(root),
+          listBranchesFn(root),
+        ]);
+        sendJson(response, 200, { current, branches });
+        return;
+      }
       if (request.method === "POST" && pathname === "/api/goals") {
         const input = await readJsonBody(request);
         const goal = String(input.goal || "").trim();
         if (!goal) throw Object.assign(new Error("goal cannot be empty"), { status: 400 });
         const executionMode = input.executionMode === "manual" ? "manual" : "auto";
         const config = await loadConfigFn(root);
+        const baseRef = await resolveBaseRef(root, input.baseRef);
         const checks = await runDoctorFn(config, root);
         const agents = healthyAgentNames(checks, config);
         const strategist = selectStrategist(config, agents);
-        const session = await sessionStore.create({
+        let session = await sessionStore.create({
           goal,
           strategist,
           workerAgents: selectWorkerAgents(agents, strategist, config.workerMode),
           executionMode,
           attachments: [],
         });
+        if (baseRef) session = await sessionStore.update(session, { baseRef });
         startBackground(context, session, (signal) => planSession(context, {
           goal,
           attachmentPaths: input.attachmentPaths || [],
           executionMode,
+          baseRef,
           existingSession: session,
           signal,
         }));
@@ -626,7 +648,10 @@ export function createWebApplication(options) {
         if (active.has(contextKey(context, session.id))) {
           throw Object.assign(new Error("session is already active"), { status: 409 });
         }
-        const config = await loadConfigFn(root);
+        const loadedConfig = await loadConfigFn(root);
+        const config = session.baseRef
+          ? { ...loadedConfig, baseRef: session.baseRef }
+          : loadedConfig;
         startBackground(context, session, (signal) => (
           runSession(context, session, config, session.plan, signal)
         ));
@@ -635,16 +660,21 @@ export function createWebApplication(options) {
       }
       const resumeMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/resume$/);
       if (request.method === "POST" && resumeMatch) {
-        const session = await sessionStore.load(resumeMatch[1]);
+        let session = await sessionStore.load(resumeMatch[1]);
         if (!session) return sendJson(response, 404, { error: "session not found" });
         if (active.has(contextKey(context, session.id))) {
           throw Object.assign(new Error("session is already active"), { status: 409 });
         }
         const input = await readJsonBody(request);
+        const resumeBaseRef = await resolveBaseRef(root, input.baseRef ?? session.baseRef);
+        if (resumeBaseRef && resumeBaseRef !== session.baseRef) {
+          session = await sessionStore.update(session, { baseRef: resumeBaseRef });
+        }
         startBackground(context, session, (signal) => planSession(context, {
           goal: String(input.goal || session.goal),
           attachmentPaths: input.attachmentPaths || session.attachments || [],
           executionMode: input.executionMode || session.executionMode || "auto",
+          baseRef: resumeBaseRef,
           resumeSession: session,
           signal,
         }));
