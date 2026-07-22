@@ -6,6 +6,7 @@ import {
   quotaLabel,
   sessionActivityState,
   sessionTaskState,
+  shouldSubmitComposerKey,
 } from "./model.js";
 
 describe("capacity presentation", () => {
@@ -23,6 +24,17 @@ describe("capacity presentation", () => {
         { name: "copilot", installed: true, eligible: false },
       ]),
     ).toEqual(["claude"]);
+  });
+});
+
+describe("composer keyboard behavior", () => {
+  it("submits a plain Enter but keeps IME confirmation and Shift+Enter in the editor", () => {
+    expect(shouldSubmitComposerKey({ key: "Enter", shiftKey: false })).toBe(true);
+    expect(shouldSubmitComposerKey({ key: "Enter", shiftKey: true })).toBe(false);
+    expect(shouldSubmitComposerKey({ key: "Enter", isComposing: true })).toBe(false);
+    expect(shouldSubmitComposerKey({ key: "Enter", keyCode: 229 })).toBe(false);
+    expect(shouldSubmitComposerKey({ key: "Enter" }, true)).toBe(false);
+    expect(shouldSubmitComposerKey({ key: "a" })).toBe(false);
   });
 });
 

@@ -569,6 +569,96 @@ input:focus-visible {
 .muted-copy {
   color: var(--muted) !important;
 }
+.planning-indicator {
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  max-width: 520px;
+  margin-top: 6px;
+  padding: 10px 0 13px;
+  overflow: hidden;
+}
+.planning-mark {
+  position: relative;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: #aa83ff;
+}
+.planning-mark svg {
+  width: 14px;
+  height: 14px;
+  filter: drop-shadow(0 0 5px rgba(155, 92, 255, 0.42));
+  animation: planning-spark 2.4s ease-in-out infinite;
+}
+.planning-mark i {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #5fe0d1;
+  animation: planning-orbit 2.8s linear infinite;
+}
+.planning-mark i:nth-of-type(2) {
+  background: #759cff;
+  animation-delay: -1.4s;
+}
+.planning-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.planning-copy strong {
+  color: #d7dce4;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.planning-copy small {
+  color: #788493;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.planning-dots {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  margin-left: 5px;
+  transform: translateY(-1px);
+}
+.planning-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.28;
+  animation: planning-dot 1.2s ease-in-out infinite;
+}
+.planning-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.planning-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+.planning-track {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 40px;
+  height: 1px;
+  overflow: hidden;
+  background: rgba(126, 141, 161, 0.14);
+}
+.planning-track i {
+  position: absolute;
+  width: 32%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, #8f64f6, #5ad9d1, transparent);
+  transform: translateX(-110%);
+  animation: planning-track 2.3s ease-in-out infinite;
+}
 .execution-message {
   max-width: 800px;
   display: grid;
@@ -1174,6 +1264,50 @@ kbd {
   }
   100% {
     box-shadow: 0 0 0 0 rgba(70, 206, 120, 0);
+  }
+}
+
+@keyframes planning-spark {
+  0%,
+  100% {
+    opacity: 0.62;
+    transform: scale(0.9) rotate(-8deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08) rotate(7deg);
+  }
+}
+
+@keyframes planning-orbit {
+  from {
+    transform: rotate(0deg) translateX(11px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(11px) rotate(-360deg);
+  }
+}
+
+@keyframes planning-dot {
+  0%,
+  65%,
+  100% {
+    opacity: 0.24;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 0.9;
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes planning-track {
+  0% {
+    transform: translateX(-110%);
+  }
+  58%,
+  100% {
+    transform: translateX(420%);
   }
 }
 

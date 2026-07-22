@@ -9,6 +9,16 @@ export function availableAgentNames(capacity) {
   return capacity.filter((agent) => agent.installed && agent.eligible).map((agent) => agent.name);
 }
 
+export function shouldSubmitComposerKey(event, composing = false) {
+  return Boolean(
+    event?.key === "Enter" &&
+    !event.shiftKey &&
+    !composing &&
+    !event.isComposing &&
+    event.keyCode !== 229,
+  );
+}
+
 export function historyDate(value, now = new Date()) {
   if (!value) return "";
   const date = new Date(value);
