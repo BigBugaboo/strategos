@@ -1,6 +1,6 @@
 {
   "name": "strategos-cli",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "Local-first orchestration for Claude Code, Codex CLI, and GitHub Copilot CLI.",
   "type": "module",
   "bin": {
@@ -17,12 +17,15 @@
     "web:build": "cd web && vp build",
     "hooks:install": "node ./scripts/install-hooks.js",
     "prepare": "node ./scripts/install-hooks.js",
-    "check": "node --check ./bin/strategos.js && node --check ./scripts/install-hooks.js && node --check ./src/cli.js && node --check ./src/attachments.js && node --check ./src/cache.js && node --check ./src/console.js && node --check ./src/diffs.js && node --check ./src/terminal.js && node --check ./src/planner.js && node --check ./src/projects.js && node --check ./src/orchestrator.js && node --check ./src/session.js && node --check ./src/upgrade.js && node --check ./src/web-daemon.js && node --check ./src/web-server.js",
+    "check": "node --check ./bin/strategos.js && node --check ./scripts/install-hooks.js && node --check ./src/cli.js && node --check ./src/attachments.js && node --check ./src/cache.js && node --check ./src/console.js && node --check ./src/diffs.js && node --check ./src/terminal.js && node --check ./src/planner.js && node --check ./src/projects.js && node --check ./src/orchestrator.js && node --check ./src/interactive.js && node --check ./src/codex-appserver.js && node --check ./src/session.js && node --check ./src/upgrade.js && node --check ./src/web-daemon.js && node --check ./src/web-server.js",
     "test": "node --test ./test/*.test.js",
     "verify": "npm run check && npm test && npm run web:check && npm run web:test && npm run web:build"
   },
   "engines": {
     "node": ">=24"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
   },
   "keywords": [
     "ai-agents",

@@ -91,3 +91,76 @@ export function runCommand(command, args = [], options = {}) {
 export function commandExistsError(result) {
   return result.error?.code === "ENOENT";
 }
+
+// node-pty is an optional native dependency. Load it lazily so the base tool
+// stays dependency-free and interactive features degrade gracefully when the
+// native binary was never built.
+let ptyModulePromise;
+
+function loadPtyModule() {
+  if (ptyModulePromise === undefined) {
+    ptyModulePromise = import("node-pty")
+      .then((module) => (typeof module?.spawn === "function" ? module : module?.default))
+      .catch(() => null);
+  }
+  return ptyModulePromise;
+}
+
+export async function ptyAvailable() {
+  const module = await loadPtyModule();
+  return Boolean(module && typeof module.spawn === "function");
+}
+
+export async function runPty(command, args = [], options = {}) {
+  const { cwd, env = process.env, signal: abortSignal, timeoutMs = 0, cols = 120, rows = 40, onData } = options;
+  const module = await loadPtyModule();
+  if (!module || typeof module.spawn !== "function") {
+    throw Object.assign(
+      new Error("interactive PTY support is unavailable; build it with `npm rebuild node-pty`"),
+      { code: "ENOPTY" },
+    );
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let output = "";
+    let timedOut = false;
+    let aborted = false;
+    let timer;
+    const child = module.spawn(command, args, { name: "xterm-256color", cols, rows, cwd, env });
+    const abort = () => {
+      aborted = true;
+      try {
+        child.kill();
+      } catch {
+        // The child may have already exited.
+      }
+    };
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (abortSignal) abortSignal.removeEventListener("abort", abort);
+      resolve({ output, timedOut, aborted, ...result });
+    };
+    child.onData((chunk) => {
+      output += chunk;
+      if (output.length > 262_144) output = output.slice(-262_144);
+      try {
+        onData?.(chunk, child);
+      } catch {
+        // A detector callback must never break the stream.
+      }
+    });
+    child.onExit(({ exitCode, signal }) => finish({ code: exitCode ?? 1, signal: signal ?? null }));
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        abort();
+      }, timeoutMs);
+    }
+    if (abortSignal) {
+      if (abortSignal.aborted) abort();
+      else abortSignal.addEventListener("abort", abort, { once: true });
+    }
+  });
+}

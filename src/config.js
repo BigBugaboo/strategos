@@ -25,6 +25,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   planningTimeoutMinutes: 5,
   maxPlanningTasks: 12,
   baseRef: "HEAD",
+  interactive: false,
   worktreeRoot: "../.strategos-worktrees",
   maxContextBytes: 64_000,
   taskTimeoutMinutes: 45,

@@ -160,4 +160,34 @@ export function strategistInvocation(agent, {
   return agentInvocation(agent, { prompt, mode: "read-only", workspace, config, attachments });
 }
 
+// Interactive (PTY) invocation for a worker that may pause to ask the user.
+// Returns null when interactive mode is not yet supported for the agent, so
+// the orchestrator falls back to the non-interactive pipe path.
+export function interactiveInvocation(agent, { prompt, mode, workspace, config, attachments = [] }) {
+  const definition = config.agents[agent];
+  if (!definition) throw new Error(`agent is not configured: ${agent}`);
+  const extra = Array.isArray(definition.extraArgs) ? definition.extraArgs : [];
+
+  if (agent === "codex") {
+    // Interactive TUI (not `exec`): Codex pauses for approvals, which Strategos
+    // forwards to the UI and answers on the user's behalf.
+    return {
+      command: definition.command,
+      args: [
+        "-C",
+        workspace,
+        "--sandbox",
+        mode === "read-only" ? "read-only" : "workspace-write",
+        ...attachments.flatMap((attachment) => ["--image", attachment.path]),
+        ...extra,
+        prompt,
+      ],
+    };
+  }
+
+  // claude (stream-json + permission-prompt-tool) and copilot interactive
+  // adapters are pending per-CLI work; fall back to the pipe path for now.
+  return null;
+}
+
 export const BUILTIN_AGENT_NAMES = Object.freeze(["claude", "codex", "copilot"]);
