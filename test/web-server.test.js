@@ -109,7 +109,9 @@ async function fixture(t, overrides = {}) {
     createSessionStoreFn: (projectRoot) => projectRoot === secondRoot ? secondSessionStore : sessionStore,
     currentBranchFn: async (projectRoot) => projectRoot === secondRoot ? "feature/second" : "main",
     listBranchesFn: async (projectRoot) =>
-      projectRoot === secondRoot ? ["feature/second"] : ["main", "feature/review"],
+      projectRoot === secondRoot
+        ? ["feature/second"]
+        : ["main", "feature/review", "strategos/run/task"],
     projectRegistry,
     planWithStrategistFn: overrides.planWithStrategistFn || (async (input) => {
       planningRoots.push(input.root);

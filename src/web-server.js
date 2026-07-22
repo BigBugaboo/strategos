@@ -592,7 +592,10 @@ export function createWebApplication(options) {
           currentBranchFn(root),
           listBranchesFn(root),
         ]);
-        sendJson(response, 200, { current, branches });
+        sendJson(response, 200, {
+          current,
+          branches: branches.filter((branch) => !branch.startsWith("strategos/")),
+        });
         return;
       }
       if (request.method === "POST" && pathname === "/api/goals") {
