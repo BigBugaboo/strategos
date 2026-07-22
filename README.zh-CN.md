@@ -151,7 +151,8 @@ strategos web
 Session；没有历史任务时会显示干净的新任务页面。
 
 通过左侧栏的 Projects 区域，可以添加或切换本地 Git 仓库。Projects 与
-Sessions 位于同一导航层级，顶部只保留当前项目上下文。所选路径会同时限定配置、
+Sessions 位于同一导航层级，顶部只保留当前项目上下文。历史任务直接从按项目分组的
+Sessions 列表打开，不再提供单独的 Runs 页面。所选路径会同时限定配置、
 Session、附件、AI 仓库上下文、规划和 Worker 执行；项目列表只保存在本机的
 `~/.strategos/projects.json`。
 

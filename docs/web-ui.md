@@ -33,7 +33,8 @@ The repository used to start `strategos web` is the initial project. Use the
 Projects section in the left sidebar to add or switch local paths. Projects and
 Sessions are sibling navigation sections, matching the task-oriented hierarchy
 of modern coding-agent clients. The header shows compact active-project context;
-project switching remains in the left navigation.
+project switching remains in the left navigation. Saved work opens directly
+from the project-grouped Sessions list rather than a separate Runs page.
 Strategos resolves each path to its Git root, rejects paths
 outside an accessible Git repository, and stores the local project list in
 `~/.strategos/projects.json`.

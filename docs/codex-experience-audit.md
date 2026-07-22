@@ -12,7 +12,7 @@ client. Evidence was captured from the production Web build at
 3. Switch Auto or Manual execution mode.
 4. Add and remove image context.
 5. Add or switch a local project.
-6. Navigate Session history and the full Runs view.
+6. Navigate project-grouped Session history.
 7. Inspect an active, completed, failed, or interrupted Session.
 8. Collapse and reopen Session details.
 9. Edit and save orchestration settings.
@@ -39,7 +39,7 @@ client. Evidence was captured from the production Web build at
   until the form is dirty and keeps its existing success/error announcement.
 - The desktop shell now uses a quieter flat surface, compact active-project
   context, an 820-pixel conversation measure, and a denser Codex-like composer.
-- Compact layouts preserve new task, runs, settings, active project, composer,
+- Compact layouts preserve new task, settings, active project, composer,
   execution mode, and send controls without horizontal overflow.
 
 ## Accessibility review

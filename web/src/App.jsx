@@ -9,7 +9,6 @@ import {
   GearSix,
   Info,
   Paperclip,
-  Play,
   PlusSquare,
   PushPin,
   SidebarSimple,
@@ -416,43 +415,6 @@ function SessionChat({ session, liveEvents }) {
         </div>
       )}
     </div>
-  );
-}
-
-function RunsView({ sessions, repository, onSelect }) {
-  return (
-    <section className="center-page">
-      <header>
-        <p className="eyebrow">Activity</p>
-        <h1>Sessions</h1>
-        <p>
-          Plans and execution history for <strong>{repository.name}</strong>.
-        </p>
-      </header>
-      <div className="run-list">
-        {sessions.length ? (
-          sessions.map((session) => (
-            <button key={session.id} onClick={() => onSelect(session)}>
-              <span>
-                <strong>{session.goal}</strong>
-                <small>{session.id}</small>
-              </span>
-              <span className={`status-pill status-${session.status}`}>
-                {statusLabel(session.status)}
-              </span>
-              <time>{historyDate(session.updatedAt)}</time>
-              <CaretRight />
-            </button>
-          ))
-        ) : (
-          <div className="empty-list">
-            <ClockCounterClockwise />
-            <strong>No sessions yet</strong>
-            <span>Your first planned task will appear here.</span>
-          </div>
-        )}
-      </div>
-    </section>
   );
 }
 
@@ -1046,18 +1008,6 @@ export function App() {
               <PlusSquare />
               New task
             </button>
-            <button
-              type="button"
-              className={view === "runs" ? "active" : ""}
-              aria-current={view === "runs" ? "page" : undefined}
-              onClick={() => {
-                setView("runs");
-                setModeMenuOpen(false);
-              }}
-            >
-              <Play />
-              Runs
-            </button>
           </nav>
           <SessionSidebar
             repository={data.repository}
@@ -1099,13 +1049,7 @@ export function App() {
               <SidebarSimple />
             </button>
           )}
-          {view === "runs" ? (
-            <RunsView
-              sessions={data.sessions}
-              repository={data.repository}
-              onSelect={selectSession}
-            />
-          ) : view === "settings" ? (
+          {view === "settings" ? (
             <SettingsView data={data} onSaved={setData} />
           ) : (
             <SessionChat session={selected} liveEvents={liveEvents} />
