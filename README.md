@@ -178,8 +178,9 @@ repository and its locally persisted Strategos sessions directly.
 
 Use the Projects section in the left sidebar to add or switch local Git
 repositories. Projects and Sessions share the same navigation hierarchy, while
-the product header shows compact active-project context. The selected path
-scopes configuration, sessions, attachments, AI repository context, planning,
+the product header shows compact active-project context. Saved work is opened
+directly from the project-grouped Sessions list; there is no separate Runs view.
+The selected path scopes configuration, sessions, attachments, AI repository context, planning,
 and worker execution. Registered paths are stored locally in
 `~/.strategos/projects.json`.
 
