@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { agentInvocation } from "./adapters.js";
+import { agentInvocation, interactiveInvocation } from "./adapters.js";
 import { materializeAttachments } from "./attachments.js";
 import { buildTaskPrompt, collectContext } from "./context.js";
+import { runInteractiveTask } from "./interactive.js";
+import { runCodexAppServer } from "./codex-appserver.js";
 import {
   assertCleanRepo,
   captureWorktreeChanges,
@@ -12,7 +14,7 @@ import {
   currentHead,
 } from "./git.js";
 import { buildWaves, validatePlan } from "./plan.js";
-import { runCommand, commandExistsError } from "./process.js";
+import { runCommand, commandExistsError, ptyAvailable } from "./process.js";
 import { createRunId, ensureDir, readJson, truncateText, writeJson } from "./utils.js";
 
 async function readOptional(file) {
@@ -105,6 +107,13 @@ async function prepareTask({
       sessionId,
       sessionName,
     });
+    const interactive = interactiveInvocation(task.agent, {
+      prompt,
+      mode: task.mode,
+      workspace: worktree.path,
+      config,
+      attachments,
+    });
     await fs.writeFile(path.join(artifactDir, "prompt.md"), prompt, "utf8");
     return {
       id: task.id,
@@ -118,6 +127,8 @@ async function prepareTask({
       worktree: worktree.path,
       baseCommit,
       invocation,
+      interactiveInvocation: interactive,
+      prompt,
       startedAt,
     };
   } catch (error) {
@@ -137,22 +148,58 @@ async function prepareTask({
   }
 }
 
-async function executePreparedTask(prepared, config, signal) {
+async function executePreparedTask(prepared, config, signal, onPrompt) {
   if (prepared.status === "failed") return prepared;
   const timeoutMs = config.taskTimeoutMinutes * 60_000;
-  const result = await runCommand(prepared.invocation.command, prepared.invocation.args, {
-    cwd: prepared.worktree,
-    signal,
-    timeoutMs,
-    env: {
-      ...process.env,
-      STRATEGOS_TASK_ID: prepared.id,
-      STRATEGOS_AGENT: prepared.agent,
-      STRATEGOS_MODE: prepared.mode,
-      STRATEGOS_SESSION_ID: prepared.sessionId,
-      STRATEGOS_WORKTREE: prepared.worktree,
-    },
-  });
+  const env = {
+    ...process.env,
+    STRATEGOS_TASK_ID: prepared.id,
+    STRATEGOS_AGENT: prepared.agent,
+    STRATEGOS_MODE: prepared.mode,
+    STRATEGOS_SESSION_ID: prepared.sessionId,
+    STRATEGOS_WORKTREE: prepared.worktree,
+  };
+  // Interactive mode (opt-in) lets a worker pause to ask the user. Codex uses
+  // its structured app-server protocol (plain pipes); other CLIs fall back to a
+  // PTY, which needs node-pty. Both surface prompts through `onPrompt`.
+  const interactiveEnabled = Boolean(config.interactive && onPrompt);
+  const useCodexAppServer = interactiveEnabled && prepared.agent === "codex";
+  const usePty = interactiveEnabled && !useCodexAppServer && prepared.interactiveInvocation && (await ptyAvailable());
+  let result;
+  if (useCodexAppServer) {
+    const codexResult = await runCodexAppServer({
+      command: prepared.invocation.command,
+      prompt: prepared.prompt,
+      cwd: prepared.worktree,
+      env,
+      sandbox: prepared.mode === "read-only" ? "read-only" : "workspace-write",
+      approvalPolicy: "on-request",
+      signal,
+      timeoutMs,
+      onPrompt,
+      task: { id: prepared.id, agent: prepared.agent },
+    });
+    result = { stdout: codexResult.report || "", stderr: codexResult.error || "", code: codexResult.code, aborted: codexResult.aborted, timedOut: codexResult.timedOut, error: null };
+  } else if (usePty) {
+    const ptyResult = await runInteractiveTask({
+      command: prepared.interactiveInvocation.command,
+      args: prepared.interactiveInvocation.args,
+      cwd: prepared.worktree,
+      signal,
+      timeoutMs,
+      env,
+      onPrompt,
+      task: { id: prepared.id, agent: prepared.agent },
+    });
+    result = { stdout: ptyResult.output || "", stderr: "", code: ptyResult.code, aborted: ptyResult.aborted, timedOut: ptyResult.timedOut, error: null };
+  } else {
+    result = await runCommand(prepared.invocation.command, prepared.invocation.args, {
+      cwd: prepared.worktree,
+      signal,
+      timeoutMs,
+      env,
+    });
+  }
 
   const report = result.stdout.trim();
   await fs.writeFile(path.join(prepared.artifactDir, "report.md"), `${report}\n`, "utf8");
@@ -206,6 +253,7 @@ export async function runPlan({
   dryRun = false,
   maxParallel,
   onEvent = () => {},
+  onPrompt,
   sessionIdFactory = () => crypto.randomUUID(),
   signal,
 }) {
@@ -321,7 +369,7 @@ export async function runPlan({
       if (task.status !== "failed") await emit({ type: "task_started", task });
     }
     const batch = await Promise.all(
-      prepared.map((task) => executePreparedTask(task, config, signal)),
+      prepared.map((task) => executePreparedTask(task, config, signal, onPrompt)),
     );
     for (const result of batch) {
       results.set(result.id, result);

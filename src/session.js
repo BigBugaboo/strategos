@@ -141,7 +141,7 @@ export function createSessionStore(root, options = {}) {
   };
 
   return {
-    async create({ goal, strategist, workerAgents, executionMode, attachments = [] }) {
+    async create({ goal, strategist, workerAgents, executionMode, soloAgent = null, attachments = [] }) {
       const createdAt = timestamp();
       const session = {
         version: 1,
@@ -151,6 +151,7 @@ export function createSessionStore(root, options = {}) {
         strategist,
         workerAgents,
         executionMode,
+        soloAgent,
         attachments,
         status: "planning",
         attempts: 1,

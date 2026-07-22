@@ -12,8 +12,26 @@ import { createBranch, currentBranch, listBranches } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { createProjectRegistry } from "./projects.js";
-import { runCommand } from "./process.js";
+import { ptyAvailable, runCommand } from "./process.js";
+import { createRequire } from "node:module";
 import { buildResumeContext, createSessionStore } from "./session.js";
+
+// Build node-pty's native binary on demand so users whose package manager
+// blocks install scripts can enable interactive prompts from the UI.
+async function buildInteractiveSupport() {
+  let ptyDir;
+  try {
+    ptyDir = path.dirname(createRequire(import.meta.url).resolve("node-pty/package.json"));
+  } catch {
+    return { ok: false, log: "node-pty is not installed; run `npm install` first." };
+  }
+  const result = await runCommand("npx", ["--yes", "node-gyp", "rebuild"], {
+    cwd: ptyDir,
+    timeoutMs: 300_000,
+  });
+  const log = `${result.stdout}\n${result.stderr}`.trim().split("\n").slice(-8).join("\n");
+  return { ok: result.code === 0, log };
+}
 
 const BRANCH_NAME_PATTERN = /^(?!-)(?!.*\.\.)(?!.*[/.]$)[A-Za-z0-9._/-]+$/;
 
@@ -80,6 +98,7 @@ function publicSession(session) {
     strategist: session.strategist,
     workerAgents: session.workerAgents || [],
     executionMode: session.executionMode,
+    soloAgent: session.soloAgent || null,
     baseRef: session.baseRef || null,
     attachments: (session.attachments || []).map(({ path: _path, ...attachment }) => attachment),
     status: session.status,
@@ -116,6 +135,34 @@ function selectStrategist(config, agents) {
   if (agents.includes(config.strategist)) return config.strategist;
   if (agents.length) return agents[0];
   throw new Error("no installed and enabled agent CLI is available");
+}
+
+const SOLO_AGENTS = new Set(["claude", "codex"]);
+
+// Only-one mode: the user pins a single CLI to both plan and execute the goal,
+// bypassing automatic strategist/worker selection. Returns null when unset.
+function normalizeSoloAgent(value, agents) {
+  if (value == null || value === "") return null;
+  const soloAgent = String(value);
+  if (!SOLO_AGENTS.has(soloAgent)) {
+    throw Object.assign(new Error(`invalid soloAgent: ${soloAgent}; expected claude or codex`), { status: 400 });
+  }
+  if (!agents.includes(soloAgent)) {
+    throw Object.assign(
+      new Error(`solo agent ${soloAgent} is not installed and enabled`),
+      { status: 400 },
+    );
+  }
+  return soloAgent;
+}
+
+// Resolve the strategist and worker roster, honoring an only-one pin when set.
+function resolvePlanAgents(config, agents, soloAgent) {
+  if (soloAgent && agents.includes(soloAgent)) {
+    return { strategist: soloAgent, workerAgents: [soloAgent] };
+  }
+  const strategist = selectStrategist(config, agents);
+  return { strategist, workerAgents: selectWorkerAgents(agents, strategist, config.workerMode) };
 }
 
 function extensionForMimeType(mimeType) {
@@ -161,12 +208,15 @@ export function createWebApplication(options) {
   const listBranchesFn = options.listBranchesFn || listBranches;
   const createBranchFn = options.createBranchFn || createBranch;
   const pickDirectoryFn = options.pickDirectoryFn || pickDirectory;
+  const ptyAvailableFn = options.ptyAvailableFn || ptyAvailable;
+  const buildInteractiveSupportFn = options.buildInteractiveSupportFn || buildInteractiveSupport;
   const projectRegistry = options.projectRegistry || createProjectRegistry({ initialRoot });
   const webControl = options.webControl;
   const sessionStores = new Map();
   if (options.sessionStore) sessionStores.set(initialRoot, options.sessionStore);
   const subscribers = new Map();
   const active = new Map();
+  const pendingPrompts = new Map();
 
   const projectContext = async (projectPath) => {
     const project = await projectRegistry.resolve(projectPath || initialRoot);
@@ -217,6 +267,37 @@ export function createWebApplication(options) {
     for (const response of subscribers.get(contextKey(context, sessionId)) || []) response.write(payload);
   };
 
+  // Bridge a worker's interactive prompt to the UI: publish a `prompt_requested`
+  // event and return a promise the answer endpoint resolves once the user picks.
+  const makeOnPrompt = (context, sessionId) => (request) => {
+    const promptId = String(request.id || "");
+    if (!promptId) return Promise.resolve(null);
+    const key = `${contextKey(context, sessionId)} ${promptId}`;
+    publish(context, sessionId, {
+      type: "prompt_requested",
+      at: new Date().toISOString(),
+      task: request.task || (request.taskId ? { id: request.taskId, agent: request.agent } : undefined),
+      prompt: {
+        id: promptId,
+        question: request.question || "",
+        options: Array.isArray(request.options) ? request.options : [],
+        kind: request.kind || (request.options?.length ? "select" : "text"),
+        defaultValue: request.defaultValue ?? null,
+      },
+    });
+    return new Promise((resolve) => pendingPrompts.set(key, { resolve }));
+  };
+
+  const settlePrompts = (context, sessionId, value = null) => {
+    const prefix = `${contextKey(context, sessionId)} `;
+    for (const [key, pending] of pendingPrompts) {
+      if (key.startsWith(prefix)) {
+        pendingPrompts.delete(key);
+        pending.resolve(value);
+      }
+    }
+  };
+
   const updateSession = async (context, session, patch, event) => {
     const updated = await context.sessionStore.update(session, patch);
     if (event) publish(context, updated.id, event);
@@ -238,6 +319,7 @@ export function createWebApplication(options) {
         config,
         planInput,
         signal,
+        onPrompt: makeOnPrompt(context, session.id),
         onEvent: (event) => {
           const stampedEvent = { ...event, at: event.at || new Date().toISOString() };
           publish(context, session.id, stampedEvent);
@@ -268,24 +350,29 @@ export function createWebApplication(options) {
       }, interrupted
         ? { type: "session_interrupted", phase: "running" }
         : { type: "session_error", error: String(error.message || error) });
+    } finally {
+      settlePrompts(context, session.id);
     }
   };
 
-  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", baseRef, resumeSession, existingSession, signal }) => {
+  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", soloAgent = null, baseRef, resumeSession, existingSession, signal }) => {
     let config = await loadConfigFn(context.root);
     if (baseRef) config = { ...config, baseRef };
     const checks = await runDoctorFn(config, context.root);
     const healthy = healthyAgentNames(checks, config);
     const agents = healthy;
-    const strategist = selectStrategist(config, agents);
-    const workerAgents = selectWorkerAgents(agents, strategist, config.workerMode);
+    const solo = soloAgent && agents.includes(soloAgent) ? soloAgent : null;
+    // Only-one sessions always auto-run: there is no worker roster to review.
+    const effectiveMode = solo ? "auto" : executionMode;
+    const { strategist, workerAgents } = resolvePlanAgents(config, agents, solo);
     const attachments = await resolveAttachmentsFn(context.root, attachmentPaths);
     let session = resumeSession
       ? await context.sessionStore.update(resumeSession, {
         goal: goal.trim(),
         strategist,
         workerAgents,
-        executionMode,
+        executionMode: effectiveMode,
+        soloAgent: solo,
         attachments: serializableAttachments(attachments),
         status: "planning",
         attempts: (resumeSession.attempts || 1) + 1,
@@ -294,14 +381,18 @@ export function createWebApplication(options) {
       })
       : existingSession
         ? await context.sessionStore.update(existingSession, {
+          strategist,
+          workerAgents,
+          soloAgent: solo,
           attachments: serializableAttachments(attachments),
-          executionMode,
+          executionMode: effectiveMode,
         })
         : await context.sessionStore.create({
           goal,
           strategist,
           workerAgents,
-          executionMode,
+          executionMode: effectiveMode,
+          soloAgent: solo,
           attachments: serializableAttachments(attachments),
         });
     const planningEvent = {
@@ -329,11 +420,11 @@ export function createWebApplication(options) {
         attachments: attachments.map((attachment) => attachment.relativePath),
       };
       session = await updateSession(context, session, {
-        status: executionMode === "auto" ? "previewed" : "planned",
+        status: effectiveMode === "auto" ? "previewed" : "planned",
         plan: planWithAttachments,
         attachments: serializableAttachments(attachments),
-      }, { type: "plan_ready", plan: planWithAttachments, executionMode });
-      if (executionMode === "auto") {
+      }, { type: "plan_ready", plan: planWithAttachments, executionMode: effectiveMode });
+      if (effectiveMode === "auto") {
         await runSession(context, session, config, planWithAttachments, signal);
       }
     } catch (error) {
@@ -451,6 +542,7 @@ export function createWebApplication(options) {
           executionMode: config.executionMode || "auto",
           strategist: config.strategist,
           workerMode: config.workerMode,
+          interactive: Boolean(config.interactive),
           notifications: normalizeNotificationSettings(config.notifications),
           agents: Object.keys(config.agents || {}),
           checks,
@@ -582,12 +674,15 @@ export function createWebApplication(options) {
           ...config,
           executionMode,
           strategist,
+          interactive:
+            typeof input.interactive === "boolean" ? input.interactive : Boolean(config.interactive),
           notifications: normalizeNotificationSettings(input.notifications, config.notifications),
         };
         await saveConfigFn(root, next);
         sendJson(response, 200, {
           executionMode: next.executionMode,
           strategist: next.strategist,
+          interactive: next.interactive,
           notifications: next.notifications,
         });
         return;
@@ -646,21 +741,40 @@ export function createWebApplication(options) {
         sendJson(response, 200, { path: await pickDirectoryFn() });
         return;
       }
+      if (request.method === "GET" && pathname === "/api/interactive") {
+        sendJson(response, 200, { available: await ptyAvailableFn() });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/interactive/enable") {
+        const build = await buildInteractiveSupportFn();
+        sendJson(response, build.ok ? 200 : 500, {
+          ok: build.ok,
+          available: await ptyAvailableFn(),
+          needsRestart: build.ok,
+          log: build.log,
+        });
+        return;
+      }
       if (request.method === "POST" && pathname === "/api/goals") {
         const input = await readJsonBody(request);
         const goal = String(input.goal || "").trim();
         if (!goal) throw Object.assign(new Error("goal cannot be empty"), { status: 400 });
-        const executionMode = input.executionMode === "manual" ? "manual" : "auto";
         const config = await loadConfigFn(root);
         const baseRef = await resolveBaseRef(root, input.baseRef);
         const checks = await runDoctorFn(config, root);
         const agents = healthyAgentNames(checks, config);
-        const strategist = selectStrategist(config, agents);
+        const soloAgent = normalizeSoloAgent(input.soloAgent, agents);
+        // Only-one sessions always auto-run the pinned CLI.
+        const executionMode = soloAgent
+          ? "auto"
+          : input.executionMode === "manual" ? "manual" : "auto";
+        const { strategist, workerAgents } = resolvePlanAgents(config, agents, soloAgent);
         let session = await sessionStore.create({
           goal,
           strategist,
-          workerAgents: selectWorkerAgents(agents, strategist, config.workerMode),
+          workerAgents,
           executionMode,
+          soloAgent,
           attachments: [],
         });
         if (baseRef) session = await sessionStore.update(session, { baseRef });
@@ -668,11 +782,33 @@ export function createWebApplication(options) {
           goal,
           attachmentPaths: input.attachmentPaths || [],
           executionMode,
+          soloAgent,
           baseRef,
           existingSession: session,
           signal,
         }));
         sendJson(response, 202, publicSession(session));
+        return;
+      }
+      const answerMatch = pathname.match(
+        /^\/api\/sessions\/([a-zA-Z0-9-]+)\/tasks\/([a-zA-Z0-9._-]+)\/answer$/,
+      );
+      if (request.method === "POST" && answerMatch) {
+        const [, answerSessionId, answerTaskId] = answerMatch;
+        const input = await readJsonBody(request);
+        const promptId = String(input.promptId || "");
+        const key = `${contextKey(context, answerSessionId)} ${promptId}`;
+        const pending = pendingPrompts.get(key);
+        if (!pending) throw Object.assign(new Error("no pending prompt"), { status: 404 });
+        pendingPrompts.delete(key);
+        pending.resolve(input.value ?? null);
+        publish(context, answerSessionId, {
+          type: "prompt_answered",
+          at: new Date().toISOString(),
+          task: { id: answerTaskId },
+          prompt: { id: promptId, value: input.value ?? null },
+        });
+        sendJson(response, 200, { ok: true });
         return;
       }
       const stopMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/stop$/);
@@ -725,6 +861,7 @@ export function createWebApplication(options) {
           goal: String(input.goal || session.goal),
           attachmentPaths: input.attachmentPaths || session.attachments || [],
           executionMode: input.executionMode || session.executionMode || "auto",
+          soloAgent: input.soloAgent ?? session.soloAgent ?? null,
           baseRef: resumeBaseRef,
           resumeSession: session,
           signal,

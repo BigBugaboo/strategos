@@ -420,6 +420,59 @@ test("Web planning persists the headless strategist activity", async (t) => {
   assert.match(planning.at, /^2026-/);
 });
 
+test("Web only-one mode pins a single CLI and forces auto execution", async (t) => {
+  const { url } = await fixture(t, {
+    planWithStrategistFn: async (input) => ({
+      version: 1,
+      goal: input.goal,
+      context: [],
+      tasks: [{
+        id: "solo",
+        agent: "claude",
+        mode: "read-only",
+        prompt: "Plan and run alone.",
+        dependsOn: [],
+      }],
+    }),
+    runPlanFn: async () => ({ runId: "solo-run", manifest: { status: "succeeded", tasks: [] } }),
+  });
+
+  const response = await fetch(`${url}/api/goals`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    // manual is requested but must be overridden to auto for only-one mode.
+    body: JSON.stringify({ goal: "Ship it alone", executionMode: "manual", soloAgent: "claude" }),
+  });
+  assert.equal(response.status, 202);
+  const created = await response.json();
+  assert.equal(created.soloAgent, "claude");
+  assert.equal(created.strategist, "claude");
+  assert.deepEqual(created.workerAgents, ["claude"]);
+  assert.equal(created.executionMode, "auto");
+
+  let session;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    session = await (await fetch(`${url}/api/sessions/${created.id}`)).json();
+    if (["succeeded", "failed", "completed"].includes(session.status)) break;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const planning = session.events.find((event) => event.type === "planning_started");
+  assert.equal(planning.strategist, "claude");
+  assert.deepEqual(planning.workerAgents, ["claude"]);
+  assert.equal(session.soloAgent, "claude");
+});
+
+test("Web rejects an only-one request for an unavailable CLI", async (t) => {
+  const { url } = await fixture(t);
+  const rejected = await fetch(`${url}/api/goals`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ goal: "Use a copilot solo", soloAgent: "copilot" }),
+  });
+  assert.equal(rejected.status, 400);
+  assert.match((await rejected.json()).error, /invalid soloAgent/);
+});
+
 test("Web sessions can stop an active strategist and remain resumable", async (t) => {
   let abortObserved = false;
   const { url } = await fixture(t, {
@@ -509,4 +562,56 @@ test("Web sessions can stop active worker execution", async (t) => {
     await new Promise((resolve) => setImmediate(resolve));
   }
   assert.equal(workerAbortObserved, true);
+});
+
+test("Web relays an interactive worker prompt answer back to the run", async (t) => {
+  let answered;
+  const { url } = await fixture(t, {
+    runPlanFn: async ({ onEvent, onPrompt }) => {
+      await onEvent({
+        type: "task_started",
+        task: { id: "review", agent: "codex", mode: "read-only" },
+      });
+      answered = await onPrompt({
+        id: "prompt-1",
+        taskId: "review",
+        agent: "codex",
+        question: "Apply the migration?",
+        options: [
+          { value: "yes", label: "Yes" },
+          { value: "no", label: "No" },
+        ],
+      });
+      return { runId: "run-prompt", manifest: { status: "succeeded", tasks: {} } };
+    },
+  });
+  const created = await (
+    await fetch(`${url}/api/goals`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ goal: "Ask me something", executionMode: "auto" }),
+    })
+  ).json();
+  let running = false;
+  for (let attempt = 0; attempt < 40 && !running; attempt += 1) {
+    const current = await (await fetch(`${url}/api/sessions/${created.id}`)).json();
+    if (current.status === "running") running = true;
+    else await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(running, true);
+  let delivered = false;
+  for (let attempt = 0; attempt < 60 && !delivered; attempt += 1) {
+    const response = await fetch(`${url}/api/sessions/${created.id}/tasks/review/answer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ promptId: "prompt-1", value: "yes" }),
+    });
+    if (response.status === 200) delivered = true;
+    else await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(delivered, true);
+  for (let attempt = 0; attempt < 60 && answered === undefined; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(answered, "yes");
 });

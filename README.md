@@ -221,7 +221,11 @@ action. Agent
 availability comes from local health checks and each agent's `enabled` setting;
 provider quota and billing remain in the provider's own CLI or dashboard. Auto
 mode previews and runs the generated plan, while
-Manual mode stops after planning and exposes a Run action. Session history,
+Manual mode stops after planning and exposes a Run action. The composer mode
+menu also offers **Only One**, which pins a single CLI (Claude Code or Codex
+CLI, whichever is healthy) to both plan and execute the goal as an isolated
+single-CLI session; it always auto-runs and the last pinned CLI is remembered
+for the next task. Session history,
 image upload, Resume, recent events, and changed files remain local. Selecting a
 file in **Files changed** opens its saved read-only patch; Unified is the default
 layout and Split is available for side-by-side review.

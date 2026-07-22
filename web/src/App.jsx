@@ -8,6 +8,7 @@ import {
   CaretRight,
   CheckCircle,
   ClockCounterClockwise,
+  Cpu,
   FileCode,
   FolderOpen,
   GearSix,
@@ -42,7 +43,57 @@ import {
 
 const AGENT_COLORS = { claude: "#39d5df", codex: "#9b5cff", copilot: "#a3aab6" };
 const PROJECT_STORAGE_KEY = "strategos.selectedProject";
+const SOLO_AGENT_STORAGE_KEY = "strategos.soloAgent";
+// Only-one mode lets the user pin a single CLI to plan and execute a task alone.
+const SOLO_AGENTS = [
+  { name: "claude", label: "Claude Code" },
+  { name: "codex", label: "Codex CLI" },
+];
+const SOLO_AGENT_LABELS = Object.fromEntries(SOLO_AGENTS.map((item) => [item.name, item.label]));
 const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const CLI_GUIDES = [
+  { name: "claude", label: "Claude Code", install: "npm install -g @anthropic-ai/claude-code" },
+  { name: "codex", label: "Codex CLI", install: "npm install -g @openai/codex" },
+  { name: "copilot", label: "GitHub Copilot CLI", install: "npm install -g @github/copilot" },
+];
+
+function ConnectionsPanel({ checks, onRecheck, rechecking }) {
+  const agents = CLI_GUIDES.map((guide) => {
+    const check = (checks || []).find((item) => item.name === guide.name);
+    return { ...guide, ok: Boolean(check?.ok), detail: check?.detail };
+  });
+  return (
+    <div className="connections">
+      <ul className="connection-list">
+        {agents.map((agent) => (
+          <li key={agent.name} className={`connection ${agent.ok ? "connected" : ""}`}>
+            <span className={`connection-dot ${agent.ok ? "on" : "off"}`} aria-hidden="true" />
+            <span className="connection-copy">
+              <strong>{agent.label}</strong>
+              <small>
+                {agent.ok
+                  ? agent.detail || "Connected"
+                  : `Install and sign in, then re-check · ${agent.install}`}
+              </small>
+            </span>
+            <span className={`connection-status ${agent.ok ? "on" : "off"}`}>
+              {agent.ok ? "Connected" : "Not linked"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        className="connection-recheck"
+        disabled={rechecking}
+        onClick={() => void onRecheck()}
+      >
+        <ArrowCounterClockwise />
+        {rechecking ? "Checking…" : "Re-check connections"}
+      </button>
+    </div>
+  );
+}
 
 function shortPath(value) {
   if (!value) return "";
@@ -92,6 +143,20 @@ function eventText(event) {
 
 function savedProjectPath() {
   return globalThis.localStorage?.getItem(PROJECT_STORAGE_KEY) || "";
+}
+
+function savedSoloAgent() {
+  const value = globalThis.localStorage?.getItem(SOLO_AGENT_STORAGE_KEY) || "";
+  return SOLO_AGENT_LABELS[value] ? value : "";
+}
+
+// Which CLIs are installed, enabled, and healthy enough to run solo right now.
+function healthySoloAgents(data) {
+  const enabled = new Set(data?.agents || []);
+  const healthy = new Set(
+    (data?.checks || []).filter((check) => check.ok).map((check) => check.name),
+  );
+  return SOLO_AGENTS.filter((item) => enabled.has(item.name) && healthy.has(item.name));
 }
 
 function sidebarGroupsFor(data) {
@@ -793,20 +858,6 @@ function ProjectContextBar({
             {!branches && !branchError && (
               <p className="project-context-empty">Loading branches…</p>
             )}
-            {canCreateBranch && (
-              <button
-                type="button"
-                className="project-context-create"
-                disabled={creatingBranch}
-                onClick={() => void createBranchHandler()}
-              >
-                <PlusSquare />
-                <span>
-                  <strong>{creatingBranch ? "Creating…" : `Create branch “${query}”`}</strong>
-                  <small>Branch from {branch}</small>
-                </span>
-              </button>
-            )}
             {filteredBranches.map((name) => {
               const current = name === branch;
               return (
@@ -825,9 +876,27 @@ function ProjectContextBar({
                 </button>
               );
             })}
-            {branches && !filteredBranches.length && !canCreateBranch && (
-              <p className="project-context-empty">No branches found.</p>
+            {branches && !filteredBranches.length && (
+              <p className="project-context-empty">No matching branches.</p>
             )}
+          </div>
+          <div className="project-context-menu-footer">
+            <button
+              type="button"
+              className="project-context-create"
+              disabled={!canCreateBranch || creatingBranch}
+              onClick={() => void createBranchHandler()}
+            >
+              <PlusSquare />
+              <span>
+                {creatingBranch
+                  ? "Creating…"
+                  : query
+                    ? `Create branch “${query}”`
+                    : "Create a new branch"}
+                {canCreateBranch && !creatingBranch && <small>Branch from {branch}</small>}
+              </span>
+            </button>
           </div>
         </div>
       )}
@@ -882,7 +951,64 @@ function capitalize(value) {
   return value ? value[0].toUpperCase() + value.slice(1) : "Worker";
 }
 
-function WorkerMessage({ task, updatedAt }) {
+function PromptCard({ prompt, onAnswer }) {
+  const [text, setText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async (value) => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onAnswer(value);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const isText = prompt.kind === "text" || !(prompt.options || []).length;
+  return (
+    <div className="prompt-card" role="group" aria-label="Agent needs your input">
+      <p className="prompt-question">{prompt.question || "The agent needs your input."}</p>
+      {isText ? (
+        <form
+          className="prompt-text"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (text.trim()) void submit(text.trim());
+          }}
+        >
+          <input
+            value={text}
+            autoFocus
+            disabled={submitting}
+            placeholder={prompt.defaultValue || "Type a response…"}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <button type="submit" disabled={submitting || !text.trim()}>
+            Send
+          </button>
+        </form>
+      ) : (
+        <div className="prompt-options">
+          {(prompt.options || []).map((option) => {
+            const value = typeof option === "string" ? option : option.value;
+            const label = typeof option === "string" ? option : option.label || option.value;
+            return (
+              <button
+                key={value}
+                type="button"
+                disabled={submitting}
+                onClick={() => void submit(value)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkerMessage({ task, updatedAt, prompt, onAnswer }) {
   const active = ["preparing", "running"].includes(task.status);
   const done = ["succeeded", "failed", "interrupted", "skipped"].includes(task.status);
   const color = AGENT_COLORS[task.agent] || "#57626f";
@@ -924,20 +1050,28 @@ function WorkerMessage({ task, updatedAt }) {
             )}
           </>
         ) : (
-          <p className="worker-step">
-            <span
-              className={`worker-step-dot ${active ? "activity-pulse" : ""}`}
-              style={{ background: color }}
-            />
-            {workerStepLabel(task.status)}
-          </p>
+          <>
+            <p className="worker-step">
+              <span
+                className={`worker-step-dot ${active ? "activity-pulse" : ""}`}
+                style={{ background: color }}
+              />
+              {prompt ? "Waiting for your input…" : workerStepLabel(task.status)}
+            </p>
+            {prompt && (
+              <PromptCard
+                prompt={prompt}
+                onAnswer={(value) => onAnswer(task.id, prompt.id, value)}
+              />
+            )}
+          </>
         )}
       </div>
     </article>
   );
 }
 
-function SessionChat({ session, liveEvents }) {
+function SessionChat({ session, liveEvents, pendingPrompts = {}, onAnswer }) {
   if (!session) return <EmptyChat />;
   const plan = session.plan;
   const { tasks } = sessionTaskState(session, liveEvents);
@@ -986,7 +1120,13 @@ function SessionChat({ session, liveEvents }) {
       {tasks.length > 0 && (
         <div className="worker-stream" aria-label="Worker activity">
           {tasks.map((task) => (
-            <WorkerMessage key={task.id} task={task} updatedAt={session.updatedAt} />
+            <WorkerMessage
+              key={task.id}
+              task={task}
+              updatedAt={session.updatedAt}
+              prompt={pendingPrompts[task.id]}
+              onAnswer={onAnswer}
+            />
           ))}
         </div>
       )}
@@ -997,6 +1137,91 @@ function SessionChat({ session, liveEvents }) {
         </div>
       )}
     </div>
+  );
+}
+
+function InteractivePanel({ enabled, onToggle }) {
+  const [available, setAvailable] = useState(null);
+  const [building, setBuilding] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    let active = true;
+    api("/api/interactive")
+      .then((result) => active && setAvailable(Boolean(result.available)))
+      .catch(() => active && setAvailable(false));
+    return () => {
+      active = false;
+    };
+  }, []);
+  const buildHelper = async () => {
+    setBuilding(true);
+    setMessage("");
+    try {
+      const result = await api("/api/interactive/enable", { method: "POST", body: "{}" });
+      setAvailable(Boolean(result.available));
+      setMessage(
+        result.ok
+          ? "Built. Restart Strategos Web (strategos web restart) to activate, then re-open Settings."
+          : `Build failed. ${result.log || ""}`,
+      );
+    } catch (requestError) {
+      setMessage(requestError.message);
+    } finally {
+      setBuilding(false);
+    }
+  };
+  return (
+    <>
+      <div className="settings-group-heading">
+        <h2>Interactive prompts</h2>
+        <p>
+          Let worker CLIs (e.g. Codex) pause to ask you for input mid-task. Needs the optional
+          native helper <code>node-pty</code> built once.
+        </p>
+      </div>
+      <div className="connection">
+        <span className={`connection-dot ${available ? "on" : "off"}`} aria-hidden="true" />
+        <span className="connection-copy">
+          <strong>Native helper (node-pty)</strong>
+          <small>
+            {available === null
+              ? "Checking…"
+              : available
+                ? "Built and ready."
+                : "Not built. Run npm rebuild node-pty then restart — or let Strategos build it."}
+          </small>
+        </span>
+        {available === false && (
+          <button
+            type="button"
+            className="connection-recheck"
+            disabled={building}
+            onClick={() => void buildHelper()}
+          >
+            {building ? "Building…" : "Enable for me"}
+          </button>
+        )}
+        {available && <span className="connection-status on">Ready</span>}
+      </div>
+      <div className="settings-row">
+        <span className="settings-copy">
+          Forward interactive prompts
+          <small>Route worker questions into this chat and answer them here.</small>
+        </span>
+        <label className="toggle-control">
+          <input
+            type="checkbox"
+            aria-label="Forward interactive prompts"
+            checked={Boolean(enabled)}
+            disabled={!available}
+            onChange={(event) => onToggle(event.target.checked)}
+          />
+          <span aria-hidden="true" />
+          <em>{enabled ? "On" : "Off"}</em>
+        </label>
+      </div>
+      {message && <p className="interactive-message">{message}</p>}
+    </>
   );
 }
 
@@ -1011,9 +1236,21 @@ function SettingsView({ data, onSaved }) {
   }));
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [interactive, setInteractive] = useState(Boolean(data.interactive));
+  const [rechecking, setRechecking] = useState(false);
   const saveQueue = useRef(Promise.resolve());
   const latestSave = useRef(0);
   const statusTimer = useRef(null);
+  const recheckConnections = async () => {
+    setRechecking(true);
+    try {
+      onSaved(await api("/api/bootstrap"));
+    } catch {
+      // A failed re-check leaves the current status in place.
+    } finally {
+      setRechecking(false);
+    }
+  };
   const notificationSupported = "Notification" in globalThis;
   const notificationPermission = notificationSupported
     ? globalThis.Notification.permission
@@ -1111,6 +1348,22 @@ function SettingsView({ data, onSaved }) {
             ))}
           </select>
         </div>
+        <div className="settings-group-heading">
+          <h2>Connections</h2>
+          <p>Install the coding CLIs you want Strategos to orchestrate, then re-check.</p>
+        </div>
+        <ConnectionsPanel
+          checks={data.checks}
+          rechecking={rechecking}
+          onRecheck={recheckConnections}
+        />
+        <InteractivePanel
+          enabled={interactive}
+          onToggle={(next) => {
+            setInteractive(next);
+            persistSettings({ executionMode: mode, strategist, notifications, interactive: next });
+          }}
+        />
         <div className="settings-group-heading">
           <h2>Notifications</h2>
           <p>Desktop notifications are delivered while this Web UI remains open.</p>
@@ -1516,9 +1769,12 @@ export function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState("auto");
+  const [soloAgent, setSoloAgent] = useState(() => savedSoloAgent());
   const [attachments, setAttachments] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState(null);
   const [loaderVisible, setLoaderVisible] = useState(true);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [recheckingConnections, setRecheckingConnections] = useState(false);
   const [liveEvents, setLiveEvents] = useState([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1541,6 +1797,46 @@ export function App() {
     () => data?.sessions.find((session) => session.id === selectedId) || null,
     [data, selectedId],
   );
+  // Derive the still-unanswered interactive prompt per task from the live stream.
+  const pendingPrompts = useMemo(() => {
+    const open = new Map();
+    for (const event of liveEvents) {
+      if (event.type === "prompt_requested" && event.prompt?.id) {
+        open.set(event.prompt.id, {
+          ...event.prompt,
+          taskId: event.task?.id,
+          agent: event.task?.agent,
+        });
+      } else if (event.type === "prompt_answered" && event.prompt?.id) {
+        open.delete(event.prompt.id);
+      }
+    }
+    const byTask = {};
+    for (const prompt of open.values()) {
+      if (prompt.taskId) byTask[prompt.taskId] = prompt;
+    }
+    return byTask;
+  }, [liveEvents]);
+  const answerPrompt = async (taskId, promptId, value) => {
+    if (!selectedId) return;
+    try {
+      await api(`/api/sessions/${selectedId}/tasks/${taskId}/answer`, {
+        method: "POST",
+        body: JSON.stringify({ promptId, value }),
+      });
+      setLiveEvents((items) => [
+        ...items,
+        {
+          at: new Date().toISOString(),
+          type: "prompt_answered",
+          task: { id: taskId },
+          prompt: { id: promptId, value },
+        },
+      ]);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
 
   useEffect(() => setDiffSelection(null), [data?.repository.path, selectedId, view]);
 
@@ -1828,6 +2124,21 @@ export function App() {
     setModeMenuOpen(false);
     globalThis.setTimeout(() => composerInput.current?.focus(), 0);
   };
+  const soloOptions = healthySoloAgents(data);
+  // Drop a remembered pin if that CLI is no longer available.
+  const activeSolo =
+    soloAgent && soloOptions.some((item) => item.name === soloAgent) ? soloAgent : "";
+  const chooseExecutionMode = (nextMode) => {
+    setMode(nextMode);
+    setSoloAgent("");
+    globalThis.localStorage?.removeItem(SOLO_AGENT_STORAGE_KEY);
+    setModeMenuOpen(false);
+  };
+  const chooseSoloAgent = (name) => {
+    setSoloAgent(name);
+    globalThis.localStorage?.setItem(SOLO_AGENT_STORAGE_KEY, name);
+    setModeMenuOpen(false);
+  };
   const send = async () => {
     const goal = draft.trim();
     if (!goal || submitting) return;
@@ -1853,7 +2164,8 @@ export function App() {
         method: "POST",
         body: JSON.stringify({
           goal,
-          executionMode: mode,
+          executionMode: activeSolo ? "auto" : mode,
+          soloAgent: activeSolo || undefined,
           attachmentPaths,
           baseRef: selectedBranch || undefined,
         }),
@@ -1988,9 +2300,52 @@ export function App() {
       />
     );
   const showInspector = inspectorOpen && selected && view === "chat";
+  const connectedCount = (data.checks || []).filter(
+    (check) => CLI_GUIDES.some((guide) => guide.name === check.name) && check.ok,
+  ).length;
+  const showOnboarding = connectedCount === 0 && !onboardingDismissed;
+  const recheckConnections = async () => {
+    setRecheckingConnections(true);
+    try {
+      await refresh();
+    } catch {
+      // Keep the current status if the re-check request fails.
+    } finally {
+      setRecheckingConnections(false);
+    }
+  };
   return (
     <div className={`app-shell ${showInspector ? "" : "inspector-closed"}`}>
       {loaderVisible && <LoadingScreen leaving />}
+      {showOnboarding && (
+        <div
+          className="onboarding-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Connect a coding CLI"
+        >
+          <div className="onboarding-modal">
+            <img src="/strategos-icon.png" alt="" />
+            <h2>Connect a coding CLI</h2>
+            <p>
+              Strategos orchestrates the agent CLIs already installed on your machine. Install at
+              least one, sign in, then re-check to get started.
+            </p>
+            <ConnectionsPanel
+              checks={data.checks}
+              rechecking={recheckingConnections}
+              onRecheck={recheckConnections}
+            />
+            <button
+              type="button"
+              className="onboarding-dismiss"
+              onClick={() => setOnboardingDismissed(true)}
+            >
+              I’ll do this later
+            </button>
+          </div>
+        </div>
+      )}
       <header className="topbar">
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
@@ -2059,7 +2414,12 @@ export function App() {
           {view === "settings" ? (
             <SettingsView key={data.repository.path} data={data} onSaved={setData} />
           ) : (
-            <SessionChat session={selected} liveEvents={liveEvents} />
+            <SessionChat
+              session={selected}
+              liveEvents={liveEvents}
+              pendingPrompts={pendingPrompts}
+              onAnswer={answerPrompt}
+            />
           )}
           {view === "chat" && (
             <div className={`composer-wrap ${selected ? "" : "with-project-context"}`}>
@@ -2153,13 +2513,17 @@ export function App() {
                       <button
                         type="button"
                         className="mode-button"
-                        aria-label={`Execution mode: ${mode}`}
+                        aria-label={`Execution mode: ${activeSolo ? `only ${activeSolo}` : mode}`}
                         aria-haspopup="menu"
                         aria-expanded={modeMenuOpen}
                         onClick={() => setModeMenuOpen((value) => !value)}
                       >
-                        <Sparkle weight="fill" />
-                        {mode === "auto" ? "Auto" : "Manual"}
+                        {activeSolo ? <Cpu weight="fill" /> : <Sparkle weight="fill" />}
+                        {activeSolo
+                          ? `Only One · ${SOLO_AGENT_LABELS[activeSolo]}`
+                          : mode === "auto"
+                            ? "Auto"
+                            : "Manual"}
                         <CaretDown />
                       </button>
                       {modeMenuOpen && (
@@ -2167,35 +2531,60 @@ export function App() {
                           <button
                             type="button"
                             role="menuitemradio"
-                            aria-checked={mode === "auto"}
-                            onClick={() => {
-                              setMode("auto");
-                              setModeMenuOpen(false);
-                            }}
+                            aria-checked={!activeSolo && mode === "auto"}
+                            onClick={() => chooseExecutionMode("auto")}
                           >
                             <Sparkle weight="fill" />
                             <span>
                               <strong>Auto</strong>
                               <small>Preview, then start workers.</small>
                             </span>
-                            {mode === "auto" && <CheckCircle weight="fill" />}
+                            {!activeSolo && mode === "auto" && <CheckCircle weight="fill" />}
                           </button>
                           <button
                             type="button"
                             role="menuitemradio"
-                            aria-checked={mode === "manual"}
-                            onClick={() => {
-                              setMode("manual");
-                              setModeMenuOpen(false);
-                            }}
+                            aria-checked={!activeSolo && mode === "manual"}
+                            onClick={() => chooseExecutionMode("manual")}
                           >
                             <Info />
                             <span>
                               <strong>Manual</strong>
                               <small>Wait for approval after preview.</small>
                             </span>
-                            {mode === "manual" && <CheckCircle weight="fill" />}
+                            {!activeSolo && mode === "manual" && <CheckCircle weight="fill" />}
                           </button>
+                          {soloOptions.length > 0 && (
+                            <div className="mode-menu-group" role="group" aria-label="Only One">
+                              <span className="mode-menu-label">
+                                <Cpu weight="fill" />
+                                <span>
+                                  <strong>Only One</strong>
+                                  <small>Pin one CLI to plan and run alone.</small>
+                                </span>
+                              </span>
+                              {soloOptions.map((option) => (
+                                <button
+                                  key={option.name}
+                                  type="button"
+                                  role="menuitemradio"
+                                  className="mode-menu-nested"
+                                  aria-checked={activeSolo === option.name}
+                                  onClick={() => chooseSoloAgent(option.name)}
+                                >
+                                  <span
+                                    className="agent-dot"
+                                    style={{ background: AGENT_COLORS[option.name] }}
+                                    aria-hidden="true"
+                                  />
+                                  <span>
+                                    <strong>{option.label}</strong>
+                                  </span>
+                                  {activeSolo === option.name && <CheckCircle weight="fill" />}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
