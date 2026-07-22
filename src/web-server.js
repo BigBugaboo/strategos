@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { attachImage, resolveAttachments } from "./attachments.js";
-import { capacitySummary, eligibleAgents, mergeCapacitySettings } from "./capacity.js";
 import { loadConfig, saveConfig } from "./config.js";
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
@@ -68,6 +67,7 @@ function publicSession(session) {
     manifest: session.manifest,
     events: session.events || [],
     error: session.error,
+    pinned: Boolean(session.pinned),
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     finishedAt: session.finishedAt,
@@ -80,13 +80,19 @@ function serializableAttachments(attachments) {
 
 function healthyAgentNames(checks, config) {
   const configured = new Set(Object.keys(config.agents || {}));
-  return checks.filter((check) => check.ok && configured.has(check.name)).map((check) => check.name);
+  return checks
+    .filter((check) => (
+      check.ok &&
+      configured.has(check.name) &&
+      config.agents?.[check.name]?.enabled !== false
+    ))
+    .map((check) => check.name);
 }
 
 function selectStrategist(config, agents) {
   if (agents.includes(config.strategist)) return config.strategist;
   if (agents.length) return agents[0];
-  throw new Error("no installed agent CLI has usable capacity");
+  throw new Error("no installed and enabled agent CLI is available");
 }
 
 function extensionForMimeType(mimeType) {
@@ -143,6 +149,25 @@ export function createWebApplication(options) {
     return { project, root: project.path, sessionStore };
   };
   const contextKey = (context, sessionId) => `${context.root}\u0000${sessionId}`;
+
+  const listSessionGroups = async () => {
+    const projects = await projectRegistry.list();
+    return Promise.all(projects.map(async (project) => {
+      try {
+        const projectSessionContext = await projectContext(project.path);
+        const sessions = await projectSessionContext.sessionStore.list({ limit: 30 });
+        return {
+          ...project,
+          sessions: sessions.map(publicSession),
+          activeSessionIds: [...active.keys()]
+            .filter((key) => key.startsWith(`${project.path}\u0000`))
+            .map((key) => key.slice(project.path.length + 1)),
+        };
+      } catch {
+        return { ...project, sessions: [], activeSessionIds: [], unavailable: true };
+      }
+    }));
+  };
 
   const publish = (context, sessionId, event) => {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
@@ -207,7 +232,7 @@ export function createWebApplication(options) {
     let config = await loadConfigFn(context.root);
     const checks = await runDoctorFn(config, context.root);
     const healthy = healthyAgentNames(checks, config);
-    const agents = eligibleAgents(healthy, config);
+    const agents = healthy;
     const strategist = selectStrategist(config, agents);
     const workerAgents = selectWorkerAgents(agents, strategist, config.workerMode);
     const attachments = await resolveAttachmentsFn(context.root, attachmentPaths);
@@ -345,21 +370,21 @@ export function createWebApplication(options) {
       if (request.method === "GET" && pathname === "/api/bootstrap") {
         const config = await loadConfigFn(root);
         const checks = await runDoctorFn(config, root);
-        const sessions = await sessionStore.list({ limit: 30 });
+        const sessionGroups = await listSessionGroups();
+        const selectedGroup = sessionGroups.find((group) => group.path === root);
+        const sessions = selectedGroup?.sessions || [];
         sendJson(response, 200, {
           version,
           repository: context.project,
-          projects: await projectRegistry.list(),
+          projects: sessionGroups.map(({ sessions: _sessions, activeSessionIds: _activeIds, ...project }) => project),
+          sessionGroups,
           executionMode: config.executionMode || "auto",
           strategist: config.strategist,
           workerMode: config.workerMode,
+          agents: Object.keys(config.agents || {}),
           checks,
-          capacity: capacitySummary(config, checks),
-          excludeExhausted: config.capacity?.excludeExhausted !== false,
-          sessions: sessions.map(publicSession),
-          activeSessionIds: [...active.keys()]
-            .filter((key) => key.startsWith(`${root}\u0000`))
-            .map((key) => key.slice(root.length + 1)),
+          sessions,
+          activeSessionIds: selectedGroup?.activeSessionIds || [],
         });
         return;
       }
@@ -373,6 +398,20 @@ export function createWebApplication(options) {
         const session = await sessionStore.load(sessionMatch[1]);
         if (!session) return sendJson(response, 404, { error: "session not found" });
         sendJson(response, 200, publicSession(session));
+        return;
+      }
+      const pinMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/pin$/);
+      if (request.method === "PUT" && pinMatch) {
+        const input = await readJsonBody(request);
+        if (typeof input.pinned !== "boolean") {
+          throw Object.assign(new Error("pinned must be a boolean"), { status: 400 });
+        }
+        const session = await sessionStore.load(pinMatch[1]);
+        if (!session) return sendJson(response, 404, { error: "session not found" });
+        const updated = typeof sessionStore.setPinned === "function"
+          ? await sessionStore.setPinned(session, input.pinned)
+          : await sessionStore.update(session, { pinned: input.pinned });
+        sendJson(response, 200, publicSession(updated));
         return;
       }
       const eventMatch = pathname.match(/^\/api\/events\/([a-zA-Z0-9-]+)$/);
@@ -407,15 +446,11 @@ export function createWebApplication(options) {
           ...config,
           executionMode,
           strategist,
-          capacity: mergeCapacitySettings(config, input.capacity || config.capacity),
         };
         await saveConfigFn(root, next);
-        const checks = await runDoctorFn(next, root);
         sendJson(response, 200, {
           executionMode: next.executionMode,
           strategist: next.strategist,
-          capacity: capacitySummary(next, checks),
-          excludeExhausted: next.capacity.excludeExhausted,
         });
         return;
       }
@@ -442,7 +477,7 @@ export function createWebApplication(options) {
         const executionMode = input.executionMode === "manual" ? "manual" : "auto";
         const config = await loadConfigFn(root);
         const checks = await runDoctorFn(config, root);
-        const agents = eligibleAgents(healthyAgentNames(checks, config), config);
+        const agents = healthyAgentNames(checks, config);
         const strategist = selectStrategist(config, agents);
         const session = await sessionStore.create({
           goal,

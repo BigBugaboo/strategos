@@ -52,7 +52,7 @@ Strategos provides a small neutral layer:
   failure because some older agent CLIs return success after provider errors.
 - **Human-controlled integration**: review and merge the branches you want.
 - **Local Web UI**: a Vite+ interface for chat, saved sessions, run evidence,
-  settings, image attachments, and manual provider-capacity tracking.
+  orchestration settings, and image attachments.
 
 ## How it works
 
@@ -178,22 +178,20 @@ repository and its locally persisted Strategos sessions directly.
 
 Use the Projects section in the left sidebar to add or switch local Git
 repositories. Projects and Sessions share the same navigation hierarchy, while
-the product header remains reserved for global CLI capacity. The selected path
+the product header shows compact active-project context. The selected path
 scopes configuration, sessions, attachments, AI repository context, planning,
 and worker execution. Registered paths are stored locally in
 `~/.strategos/projects.json`.
 
-The top bar shows the latest manually recorded CLI capacity. Because Claude,
-Codex, and Copilot do not expose one consistent machine-readable quota API,
-Strategos never invents exact token counts. Mark a CLI as `Exhausted` in
-Settings and it is removed from both strategist fallback and the worker pool;
-missing or unreadable capacity is shown as `Unknown` and remains usable. Auto
+Settings controls the default execution mode and strategist CLI. Agent
+availability comes from local health checks and each agent's `enabled` setting;
+provider quota and billing remain in the provider's own CLI or dashboard. Auto
 mode previews and runs the generated plan, while
 Manual mode stops after planning and exposes a Run action. Session history,
 image upload, Resume, recent events, and changed files remain local.
 
 See [docs/web-ui.md](docs/web-ui.md) for Vite+ development commands and the
-capacity policy.
+Web execution settings.
 
 ### Add image context
 

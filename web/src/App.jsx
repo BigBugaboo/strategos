@@ -11,6 +11,7 @@ import {
   Paperclip,
   Play,
   PlusSquare,
+  PushPin,
   SidebarSimple,
   SlidersHorizontal,
   Sparkle,
@@ -21,9 +22,9 @@ import {
 import {
   historyDate,
   mergeSessionEvents,
-  quotaLabel,
   sessionActivityState,
   shouldSubmitComposerKey,
+  sortSidebarSessions,
 } from "./model.js";
 
 const AGENT_COLORS = { claude: "#39d5df", codex: "#9b5cff", copilot: "#a3aab6" };
@@ -77,6 +78,15 @@ function savedProjectPath() {
   return globalThis.localStorage?.getItem(PROJECT_STORAGE_KEY) || "";
 }
 
+function sidebarGroupsFor(data) {
+  if (data.sessionGroups) return data.sessionGroups;
+  return (data.projects || []).map((project) => ({
+    ...project,
+    sessions: project.path === data.repository.path ? data.sessions || [] : [],
+    activeSessionIds: project.path === data.repository.path ? data.activeSessionIds || [] : [],
+  }));
+}
+
 async function api(path, options = {}) {
   const { projectPath = savedProjectPath(), headers, ...requestOptions } = options;
   const response = await fetch(path, {
@@ -92,7 +102,19 @@ async function api(path, options = {}) {
   return result;
 }
 
-function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
+function SessionSidebar({
+  repository,
+  groups,
+  selectedId,
+  view,
+  expandedProjects,
+  disabled,
+  onToggleProject,
+  onSelectProject,
+  onSelectSession,
+  onTogglePin,
+  onAdd,
+}) {
   const [adding, setAdding] = useState(false);
   const [projectPath, setProjectPath] = useState("");
   const [message, setMessage] = useState("");
@@ -131,9 +153,9 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
   };
 
   return (
-    <section ref={section} className="projects-panel">
+    <section ref={section} className="session-browser">
       <div className="sidebar-section-heading">
-        <h2>Projects</h2>
+        <h2>Sessions</h2>
         <button
           className="project-add"
           type="button"
@@ -147,25 +169,69 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
           <PlusSquare />
         </button>
       </div>
-      <div className="project-list" aria-label="Projects">
-        {projects.map((project) => (
-          <button
-            type="button"
-            key={project.path}
-            className={project.path === repository.path ? "selected" : ""}
-            aria-pressed={project.path === repository.path}
-            aria-current={project.path === repository.path ? "true" : undefined}
-            disabled={disabled}
-            onClick={() => void onSelect(project.path).catch(() => {})}
-            title={project.path}
-          >
-            <FolderOpen weight={project.path === repository.path ? "fill" : "regular"} />
-            <span>
-              <strong>{project.name}</strong>
-              <small>{shortPath(project.path)}</small>
-            </span>
-          </button>
-        ))}
+      <div className="session-groups" aria-label="Sessions by project">
+        {groups.map((group) => {
+          const expanded = expandedProjects.has(group.path);
+          const current = group.path === repository.path;
+          const sessions = sortSidebarSessions(group.sessions);
+          return (
+            <section className={`project-group ${current ? "current" : ""}`} key={group.path}>
+              <button
+                type="button"
+                className="project-group-toggle"
+                aria-expanded={expanded}
+                aria-current={current ? "true" : undefined}
+                disabled={disabled || group.unavailable}
+                onClick={() => void onToggleProject(group).catch(() => {})}
+                title={group.path}
+              >
+                {expanded ? <CaretDown /> : <CaretRight />}
+                <FolderOpen weight={current ? "fill" : "regular"} />
+                <span>
+                  <strong>{group.name}</strong>
+                  <small>{group.unavailable ? "Unavailable" : shortPath(group.path)}</small>
+                </span>
+                <em>{sessions.length}</em>
+              </button>
+              {expanded && (
+                <div className="group-session-list">
+                  {sessions.length ? (
+                    sessions.map((session) => (
+                      <div
+                        className={`session-row ${selectedId === session.id && current && view === "chat" ? "selected" : ""}`}
+                        key={session.id}
+                      >
+                        <button
+                          type="button"
+                          className="session-select"
+                          onClick={() => void onSelectSession(group, session).catch(() => {})}
+                        >
+                          <span>{session.goal}</span>
+                          <span className="session-meta">
+                            <time>{historyDate(session.updatedAt)}</time>
+                            <i className={`status-${session.status}`} />
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`session-pin ${session.pinned ? "pinned" : ""}`}
+                          aria-label={`${session.pinned ? "Unpin" : "Pin"} ${session.goal}`}
+                          aria-pressed={Boolean(session.pinned)}
+                          title={session.pinned ? "Unpin session" : "Pin session"}
+                          onClick={() => void onTogglePin(group, session).catch(() => {})}
+                        >
+                          <PushPin weight={session.pinned ? "fill" : "regular"} />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="history-empty">No sessions yet.</p>
+                  )}
+                </div>
+              )}
+            </section>
+          );
+        })}
       </div>
       <div className="project-compact">
         <FolderOpen />
@@ -173,11 +239,11 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
           aria-label="Current project"
           value={repository.path}
           disabled={disabled}
-          onChange={(event) => void onSelect(event.target.value).catch(() => {})}
+          onChange={(event) => void onSelectProject(event.target.value).catch(() => {})}
         >
-          {projects.map((project) => (
-            <option key={project.path} value={project.path}>
-              {project.name}
+          {groups.map((group) => (
+            <option key={group.path} value={group.path}>
+              {group.name}
             </option>
           ))}
         </select>
@@ -231,30 +297,6 @@ function ProjectPicker({ repository, projects, disabled, onSelect, onAdd }) {
   );
 }
 
-function AgentQuota({ agent }) {
-  const value = agent.remainingPercent;
-  const exhausted = agent.state === "exhausted";
-  const label = quotaLabel(agent);
-  return (
-    <div
-      className={`quota ${exhausted ? "quota-off" : ""}`}
-      role="progressbar"
-      aria-label={`${agent.name} capacity: ${label}`}
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-valuenow={value ?? undefined}
-    >
-      <div className="quota-label">
-        <span>{agent.name[0].toUpperCase() + agent.name.slice(1)}</span>
-        <strong>{label}</strong>
-      </div>
-      <div className="quota-track">
-        <span style={{ width: `${value ?? 0}%`, backgroundColor: AGENT_COLORS[agent.name] }} />
-      </div>
-    </div>
-  );
-}
-
 function EmptyChat() {
   return (
     <div className="empty-chat">
@@ -292,13 +334,10 @@ function PlanningIndicator({ strategist }) {
   );
 }
 
-function SessionChat({ session, capacity, liveEvents }) {
+function SessionChat({ session, liveEvents }) {
   if (!session) return <EmptyChat />;
   const plan = session.plan;
   const participants = [...new Set((plan?.tasks || []).map((task) => task.agent))];
-  const excluded = capacity
-    .filter((agent) => !agent.eligible && agent.installed)
-    .map((agent) => agent.name);
   return (
     <div className="conversation">
       <article className="message user-message">
@@ -359,12 +398,6 @@ function SessionChat({ session, capacity, liveEvents }) {
                     ? "Session stopped before planning completed."
                     : "Session updated."}
             </p>
-            {excluded.length > 0 && (
-              <p className="subtle">
-                {excluded.map((name) => name[0].toUpperCase() + name.slice(1)).join(", ")}{" "}
-                {excluded.length > 1 ? "are" : "is"} excluded (out of quota).
-              </p>
-            )}
             <p className={`run-state state-${session.status}`}>
               {session.status === "interrupted" ? (
                 <StopCircle weight="fill" />
@@ -426,31 +459,14 @@ function RunsView({ sessions, repository, onSelect }) {
 function SettingsView({ data, onSaved }) {
   const [mode, setMode] = useState(data.executionMode);
   const [strategist, setStrategist] = useState(data.strategist);
-  const [capacity, setCapacity] = useState(() => data.capacity.map((agent) => ({ ...agent })));
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
-  const dirty =
-    mode !== data.executionMode ||
-    strategist !== data.strategist ||
-    JSON.stringify(capacity) !== JSON.stringify(data.capacity);
+  const dirty = mode !== data.executionMode || strategist !== data.strategist;
   const save = async (event) => {
     event.preventDefault();
     const payload = {
       executionMode: mode,
       strategist,
-      capacity: {
-        excludeExhausted: true,
-        agents: Object.fromEntries(
-          capacity.map((agent) => [
-            agent.name,
-            {
-              state: agent.state,
-              remainingPercent: agent.remainingPercent,
-              resetsAt: agent.resetsAt || null,
-            },
-          ]),
-        ),
-      },
     };
     setSaving(true);
     setMessage("Saving…");
@@ -469,7 +485,7 @@ function SettingsView({ data, onSaved }) {
       <header>
         <p className="eyebrow">Preferences</p>
         <h1>Orchestration</h1>
-        <p>Choose how Strategos plans work and which local CLIs are eligible.</p>
+        <p>Choose how Strategos plans work and which local CLI leads planning.</p>
       </header>
       <form onSubmit={save}>
         <div className="settings-row">
@@ -494,71 +510,10 @@ function SettingsView({ data, onSaved }) {
             value={strategist}
             onChange={(event) => setStrategist(event.target.value)}
           >
-            {capacity.map((agent) => (
-              <option key={agent.name}>{agent.name}</option>
+            {data.agents.map((agent) => (
+              <option key={agent}>{agent}</option>
             ))}
           </select>
-        </div>
-        <div className="capacity-settings">
-          <h2>CLI capacity</h2>
-          <p>
-            CLIs do not expose one shared quota API. Record the latest known state; exhausted CLIs
-            are excluded automatically.
-          </p>
-          {capacity.map((agent, index) => (
-            <div className="capacity-setting" key={agent.name}>
-              <span className="agent-dot" style={{ background: AGENT_COLORS[agent.name] }} />
-              <strong>{agent.name}</strong>
-              <select
-                aria-label={`${agent.name} capacity state`}
-                value={agent.state}
-                onChange={(event) =>
-                  setCapacity((items) =>
-                    items.map((item, itemIndex) =>
-                      itemIndex === index
-                        ? {
-                            ...item,
-                            state: event.target.value,
-                            remainingPercent:
-                              event.target.value === "exhausted"
-                                ? 0
-                                : event.target.value === "unknown"
-                                  ? null
-                                  : item.remainingPercent,
-                          }
-                        : item,
-                    ),
-                  )
-                }
-              >
-                <option value="available">Available</option>
-                <option value="unknown">Unknown</option>
-                <option value="exhausted">Exhausted</option>
-              </select>
-              <input
-                aria-label={`${agent.name} remaining percent`}
-                type="number"
-                min="0"
-                max="100"
-                placeholder="% left"
-                value={agent.remainingPercent ?? ""}
-                onChange={(event) =>
-                  setCapacity((items) =>
-                    items.map((item, itemIndex) =>
-                      itemIndex === index
-                        ? {
-                            ...item,
-                            state: event.target.value === "" ? "unknown" : "available",
-                            remainingPercent:
-                              event.target.value === "" ? null : Number(event.target.value),
-                          }
-                        : item,
-                    ),
-                  )
-                }
-              />
-            </div>
-          ))}
         </div>
         <div className="settings-actions">
           <button type="submit" disabled={saving || !dirty}>
@@ -756,6 +711,7 @@ export function App() {
   const [submitting, setSubmitting] = useState(false);
   const [switchingProject, setSwitchingProject] = useState(false);
   const [stoppingIds, setStoppingIds] = useState([]);
+  const [expandedProjects, setExpandedProjects] = useState(() => new Set());
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const fileInput = useRef(null);
@@ -767,6 +723,14 @@ export function App() {
     () => data?.sessions.find((session) => session.id === selectedId) || null,
     [data, selectedId],
   );
+
+  useEffect(() => {
+    if (!data?.repository.path) return;
+    setExpandedProjects((current) => {
+      if (current.size) return current;
+      return new Set([data.repository.path]);
+    });
+  }, [data?.repository.path]);
 
   const refresh = async (projectPath = savedProjectPath(), resetMode = false) => {
     const next = await api("/api/bootstrap", { projectPath });
@@ -824,8 +788,18 @@ export function App() {
     return () => source.close();
   }, [data?.repository.path, selectedId]);
 
-  const selectProject = async (projectPath) => {
-    if (!projectPath || projectPath === data.repository.path || switchingProject) return;
+  const selectProject = async (projectPath, nextSelectedId = null) => {
+    if (!projectPath || switchingProject) return;
+    setExpandedProjects((current) => new Set([...current, projectPath]));
+    if (projectPath === data.repository.path) {
+      if (nextSelectedId) {
+        setSelectedId(nextSelectedId);
+        setView("chat");
+        setModeMenuOpen(false);
+        setLiveEvents([]);
+      }
+      return;
+    }
     const previousPath = data.repository.path;
     setSwitchingProject(true);
     setError("");
@@ -834,6 +808,7 @@ export function App() {
     globalThis.localStorage?.setItem(PROJECT_STORAGE_KEY, projectPath);
     try {
       await refresh(projectPath, true);
+      setSelectedId(nextSelectedId);
       setView("chat");
       setModeMenuOpen(false);
       setDraft("");
@@ -860,6 +835,51 @@ export function App() {
     setView("chat");
     setModeMenuOpen(false);
     setLiveEvents([]);
+  };
+  const toggleProject = async (project) => {
+    const current = project.path === data.repository.path;
+    setExpandedProjects((items) => {
+      const next = new Set(items);
+      if (current && next.has(project.path)) next.delete(project.path);
+      else next.add(project.path);
+      return next;
+    });
+    if (!current) await selectProject(project.path);
+  };
+  const selectGroupedSession = async (project, session) => {
+    if (project.path !== data.repository.path) {
+      await selectProject(project.path, session.id);
+      return;
+    }
+    selectSession(session);
+  };
+  const togglePin = async (project, session) => {
+    setError("");
+    try {
+      const updated = await api(`/api/sessions/${session.id}/pin`, {
+        projectPath: project.path,
+        method: "PUT",
+        body: JSON.stringify({ pinned: !session.pinned }),
+      });
+      setData((current) => ({
+        ...current,
+        sessions:
+          project.path === current.repository.path
+            ? current.sessions.map((item) => (item.id === updated.id ? updated : item))
+            : current.sessions,
+        sessionGroups: sidebarGroupsFor(current).map((group) =>
+          group.path === project.path
+            ? {
+                ...group,
+                sessions: group.sessions.map((item) => (item.id === updated.id ? updated : item)),
+              }
+            : group,
+        ),
+      }));
+    } catch (requestError) {
+      setError(requestError.message);
+      throw requestError;
+    }
   };
   const newTask = () => {
     setSelectedId(null);
@@ -898,6 +918,14 @@ export function App() {
       setData((current) => ({
         ...current,
         sessions: [session, ...current.sessions.filter((item) => item.id !== session.id)],
+        sessionGroups: sidebarGroupsFor(current).map((group) =>
+          group.path === current.repository.path
+            ? {
+                ...group,
+                sessions: [session, ...group.sessions.filter((item) => item.id !== session.id)],
+              }
+            : group,
+        ),
         activeSessionIds: [...new Set([...(current.activeSessionIds || []), session.id])],
       }));
       setSelectedId(session.id);
@@ -993,12 +1021,9 @@ export function App() {
         )}
       </div>
     );
-  const exhausted = data.capacity.filter((agent) => agent.installed && !agent.eligible);
   const showInspector = inspectorOpen && selected && view === "chat";
   return (
-    <div
-      className={`app-shell ${exhausted.length ? "has-capacity-notice" : ""} ${showInspector ? "" : "inspector-closed"}`}
-    >
+    <div className={`app-shell ${showInspector ? "" : "inspector-closed"}`}>
       <header className="topbar">
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
@@ -1008,24 +1033,10 @@ export function App() {
           </div>
           <small>v{data.version}</small>
         </div>
-        <div className="quota-strip">
-          {data.capacity.map((agent) => (
-            <AgentQuota key={agent.name} agent={agent} />
-          ))}
-        </div>
       </header>
-      {exhausted.length > 0 && (
-        <div className="capacity-notice">
-          <WarningCircle />
-          {exhausted
-            .map((agent) => agent.name[0].toUpperCase() + agent.name.slice(1))
-            .join(", ")}{" "}
-          {exhausted.length > 1 ? "are" : "is"} out of quota and will not be used.
-        </div>
-      )}
       <div className="workspace">
         <aside className="sidebar">
-          <nav>
+          <nav className="sidebar-primary-nav">
             <button
               type="button"
               className={view === "chat" && !selected ? "active" : ""}
@@ -1047,6 +1058,21 @@ export function App() {
               <Play />
               Runs
             </button>
+          </nav>
+          <SessionSidebar
+            repository={data.repository}
+            groups={sidebarGroupsFor(data)}
+            selectedId={selectedId}
+            view={view}
+            expandedProjects={expandedProjects}
+            disabled={switchingProject}
+            onToggleProject={toggleProject}
+            onSelectProject={selectProject}
+            onSelectSession={selectGroupedSession}
+            onTogglePin={togglePin}
+            onAdd={addProject}
+          />
+          <nav className="sidebar-footer-nav">
             <button
               type="button"
               className={view === "settings" ? "active" : ""}
@@ -1060,44 +1086,6 @@ export function App() {
               Settings
             </button>
           </nav>
-          <ProjectPicker
-            repository={data.repository}
-            projects={data.projects}
-            disabled={switchingProject}
-            onSelect={selectProject}
-            onAdd={addProject}
-          />
-          <div className="history">
-            <h2>Sessions</h2>
-            <div className="history-list">
-              {data.sessions.length ? (
-                data.sessions.slice(0, 9).map((session) => (
-                  <button
-                    type="button"
-                    key={session.id}
-                    className={selectedId === session.id && view === "chat" ? "selected" : ""}
-                    onClick={() => selectSession(session)}
-                  >
-                    <span>{session.goal}</span>
-                    <time>{historyDate(session.updatedAt)}</time>
-                    <i className={`status-${session.status}`} />
-                  </button>
-                ))
-              ) : (
-                <p className="history-empty">No sessions yet.</p>
-              )}
-            </div>
-            <button
-              type="button"
-              className="view-all"
-              onClick={() => {
-                setView("runs");
-                setModeMenuOpen(false);
-              }}
-            >
-              View all sessions <CaretRight />
-            </button>
-          </div>
         </aside>
         <main className="main-panel">
           {selected && view === "chat" && !showInspector && (
@@ -1120,7 +1108,7 @@ export function App() {
           ) : view === "settings" ? (
             <SettingsView data={data} onSaved={setData} />
           ) : (
-            <SessionChat session={selected} capacity={data.capacity} liveEvents={liveEvents} />
+            <SessionChat session={selected} liveEvents={liveEvents} />
           )}
           {view === "chat" && (
             <div className="composer-wrap">

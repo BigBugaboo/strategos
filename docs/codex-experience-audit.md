@@ -3,8 +3,7 @@
 This audit covers the complete local Strategos Web shell against the supplied
 Codex-style reference and the interaction patterns of a task-oriented coding
 client. Evidence was captured from the production Web build at
-`http://127.0.0.1:4310/` during implementation. No demo sessions or quota data
-were introduced.
+`http://127.0.0.1:4310/` during implementation. No demo sessions were introduced.
 
 ## Reviewed flow
 
@@ -16,7 +15,7 @@ were introduced.
 6. Navigate Session history and the full Runs view.
 7. Inspect an active, completed, failed, or interrupted Session.
 8. Collapse and reopen Session details.
-9. Edit and save orchestration and CLI-capacity settings.
+9. Edit and save orchestration settings.
 10. Recover from empty, loading, validation, and request-error states.
 11. Navigate with keyboard and visible focus.
 12. Use the shell at desktop, compact desktop, and phone widths.
@@ -51,7 +50,7 @@ were introduced.
   `aria-expanded`.
 - Every icon-only action has an accessible name and visible focus remains
   available for keyboard users.
-- Composer, project path, capacity controls, disclosures, live status, and
+- Composer, project path, orchestration controls, disclosures, live status, and
   errors keep explicit labels or live-region semantics.
 - Reduced-motion preferences disable nonessential animation.
 

@@ -1,14 +1,3 @@
-export function quotaLabel(agent) {
-  if (agent.state === "exhausted") return "No quota — off";
-  if (agent.state === "unknown") return "Unknown";
-  if (agent.remainingPercent === null || agent.remainingPercent === undefined) return "Unknown";
-  return `${agent.remainingPercent}% left`;
-}
-
-export function availableAgentNames(capacity) {
-  return capacity.filter((agent) => agent.installed && agent.eligible).map((agent) => agent.name);
-}
-
 export function shouldSubmitComposerKey(event, composing = false) {
   return Boolean(
     event?.key === "Enter" &&
@@ -17,6 +6,14 @@ export function shouldSubmitComposerKey(event, composing = false) {
     !event.isComposing &&
     event.keyCode !== 229,
   );
+}
+
+export function sortSidebarSessions(sessions = []) {
+  return [...sessions].sort((left, right) => {
+    const pinned = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
+    if (pinned) return pinned;
+    return String(right.updatedAt || "").localeCompare(String(left.updatedAt || ""));
+  });
 }
 
 export function historyDate(value, now = new Date()) {

@@ -1,31 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  availableAgentNames,
   historyDate,
   mergeSessionEvents,
-  quotaLabel,
   sessionActivityState,
   sessionTaskState,
   shouldSubmitComposerKey,
+  sortSidebarSessions,
 } from "./model.js";
-
-describe("capacity presentation", () => {
-  it("labels exhausted and unknown capacity without inventing a percentage", () => {
-    expect(quotaLabel({ state: "exhausted", remainingPercent: 0 })).toBe("No quota — off");
-    expect(quotaLabel({ state: "unknown", remainingPercent: null })).toBe("Unknown");
-    expect(quotaLabel({ state: "unknown", remainingPercent: 72 })).toBe("Unknown");
-  });
-
-  it("returns only installed and eligible agents", () => {
-    expect(
-      availableAgentNames([
-        { name: "claude", installed: true, eligible: true },
-        { name: "codex", installed: false, eligible: false },
-        { name: "copilot", installed: true, eligible: false },
-      ]),
-    ).toEqual(["claude"]);
-  });
-});
 
 describe("composer keyboard behavior", () => {
   it("submits a plain Enter but keeps IME confirmation and Shift+Enter in the editor", () => {
@@ -35,6 +16,19 @@ describe("composer keyboard behavior", () => {
     expect(shouldSubmitComposerKey({ key: "Enter", keyCode: 229 })).toBe(false);
     expect(shouldSubmitComposerKey({ key: "Enter" }, true)).toBe(false);
     expect(shouldSubmitComposerKey({ key: "a" })).toBe(false);
+  });
+});
+
+describe("sidebar session ordering", () => {
+  it("keeps pinned sessions first and otherwise sorts by recent activity", () => {
+    expect(
+      sortSidebarSessions([
+        { id: "recent", updatedAt: "2026-07-22T10:00:00.000Z" },
+        { id: "pinned-old", pinned: true, updatedAt: "2026-07-20T10:00:00.000Z" },
+        { id: "older", updatedAt: "2026-07-21T10:00:00.000Z" },
+        { id: "pinned-new", pinned: true, updatedAt: "2026-07-21T10:00:00.000Z" },
+      ]).map((session) => session.id),
+    ).toEqual(["pinned-new", "pinned-old", "recent", "older"]);
   });
 });
 

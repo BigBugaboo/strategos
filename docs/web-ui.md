@@ -22,8 +22,8 @@ process. Configuration remains in `.strategos/config.json`; durable sessions
 remain under the repository's Git metadata; run manifests remain in
 `.strategos/runs/`.
 
-The packaged UI contains no seeded demo sessions or quota fixtures. Repository
-identity, CLI health, capacity settings, session history, plans, task events,
+The packaged UI contains no seeded demo sessions. Repository
+identity, CLI health, orchestration settings, session history, plans, task events,
 and changed files are loaded from the local Strategos API. A repository with no
 saved sessions opens in the empty New task state.
 
@@ -32,8 +32,8 @@ saved sessions opens in the empty New task state.
 The repository used to start `strategos web` is the initial project. Use the
 Projects section in the left sidebar to add or switch local paths. Projects and
 Sessions are sibling navigation sections, matching the task-oriented hierarchy
-of modern coding-agent clients. The header shows compact active-project context
-beside global CLI capacity; project switching remains in the left navigation.
+of modern coding-agent clients. The header shows compact active-project context;
+project switching remains in the left navigation.
 Strategos resolves each path to its Git root, rejects paths
 outside an accessible Git repository, and stores the local project list in
 `~/.strategos/projects.json`.
@@ -88,22 +88,13 @@ vp test --run
 vp build
 ```
 
-## Capacity policy
+## Agent availability
 
-The supported providers do not expose a shared, stable quota command with the
-same units and reset semantics. Strategos therefore separates CLI health from
-capacity:
-
-- `strategos doctor` determines whether a CLI is installed and runnable.
-- Web Settings records capacity as `Available`, `Unknown`, or `Exhausted`, with
-  an optional remaining percentage supplied by the user.
-- `Exhausted` CLIs are excluded from strategist fallback and worker assignment
-  when `excludeExhausted` is enabled, which is the default.
-- `Unknown` CLIs stay eligible. Strategos never turns missing quota data into a
-  fabricated exact percentage. Missing or unreadable capacity is normalized to
-  `Unknown`, even if a stale configuration previously marked the CLI available.
-- Capacity is a scheduling guard, not a billing meter. Provider dashboards
-  remain the source of truth.
+`strategos doctor` determines whether a configured CLI is installed and
+runnable. Healthy CLIs participate in strategist fallback and worker assignment
+unless their agent configuration sets `enabled` to `false`. Strategos does not
+track provider quota or billing; use each provider's CLI or dashboard for that
+information.
 
 ## Main flow
 
