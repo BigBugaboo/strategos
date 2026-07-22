@@ -15,4 +15,5 @@ When implementing from a selected generated mock, treat that image as the source
 - The primary experience is conversation-first. New task, Runs, Settings, session selection, attachments, Auto/Manual mode, Run, and Resume must remain functional.
 - Keep the new-task surface focused on the composer. Show the right-hand inspector only for a selected chat session, and let users collapse it without losing session state.
 - Treat keyboard and transient UI behavior as part of the product: focus the composer for new tasks, support Command/Control-K, close popovers with Escape or outside click, and expose mode choices with descriptions.
+- Keep the composer IME-safe: Enter confirms an active input-method composition, plain Enter sends only after composition ends, and Shift+Enter inserts a new line.
 - Reuse the repository's Strategos icon and Phosphor icons. Do not replace them with emoji, handcrafted SVGs, or CSS-drawn icons.

@@ -18,7 +18,13 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
-import { historyDate, mergeSessionEvents, quotaLabel, sessionActivityState } from "./model.js";
+import {
+  historyDate,
+  mergeSessionEvents,
+  quotaLabel,
+  sessionActivityState,
+  shouldSubmitComposerKey,
+} from "./model.js";
 
 const AGENT_COLORS = { claude: "#39d5df", codex: "#9b5cff", copilot: "#a3aab6" };
 const PROJECT_STORAGE_KEY = "strategos.selectedProject";
@@ -259,6 +265,33 @@ function EmptyChat() {
   );
 }
 
+function PlanningIndicator({ strategist }) {
+  const agent = strategist || "Strategos";
+  return (
+    <div className="planning-indicator" role="status" aria-live="polite">
+      <span className="planning-mark" aria-hidden="true">
+        <Sparkle weight="fill" />
+        <i />
+        <i />
+      </span>
+      <span className="planning-copy">
+        <strong>
+          {agent[0].toUpperCase() + agent.slice(1)} is planning
+          <span className="planning-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        </strong>
+        <small>Reading repository context and preparing the task graph</small>
+      </span>
+      <span className="planning-track" aria-hidden="true">
+        <i />
+      </span>
+    </div>
+  );
+}
+
 function SessionChat({ session, capacity, liveEvents }) {
   if (!session) return <EmptyChat />;
   const plan = session.plan;
@@ -301,12 +334,10 @@ function SessionChat({ session, capacity, liveEvents }) {
                 ))}
               </ol>
             </>
+          ) : session.status === "planning" ? (
+            <PlanningIndicator strategist={session.strategist} />
           ) : (
-            <p className="muted-copy">
-              {session.status === "planning"
-                ? `${session.strategist} is reading the repository and preparing a plan…`
-                : "This session does not have a saved plan yet."}
-            </p>
+            <p className="muted-copy">This session does not have a saved plan yet.</p>
           )}
         </div>
       </article>
@@ -729,6 +760,7 @@ export function App() {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const fileInput = useRef(null);
   const composerInput = useRef(null);
+  const composerIsComposing = useRef(false);
   const modeControl = useRef(null);
   const bootstrapped = useRef(false);
   const selected = useMemo(
@@ -1125,8 +1157,19 @@ export function App() {
                   rows="2"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onCompositionStart={() => {
+                    composerIsComposing.current = true;
+                  }}
+                  onCompositionEnd={() => {
+                    composerIsComposing.current = false;
+                  }}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
+                    if (
+                      shouldSubmitComposerKey(
+                        event.nativeEvent || event,
+                        composerIsComposing.current,
+                      )
+                    ) {
                       event.preventDefault();
                       event.currentTarget.form?.requestSubmit();
                     }
