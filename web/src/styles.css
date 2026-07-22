@@ -452,7 +452,7 @@ input:focus-visible {
   padding: 0;
   border-radius: 5px;
   color: #778391;
-  opacity: 0;
+  opacity: 0.35;
 }
 .session-row:hover .session-pin,
 .session-pin:focus-visible,
