@@ -14,7 +14,7 @@ When implementing from a selected generated mock, treat that image as the source
 - Keep local repository paths out of the product header. Use the quiet slogan “One plan. Every agent aligned.” beneath the active title.
 - Group sessions under collapsible project headings instead of maintaining separate project and history lists. Keep pinned sessions at the top of their project.
 - Put cross-project batch management behind the gear beside the Sessions heading. Archive is reversible, delete requires explicit confirmation, and active Sessions cannot be archived or deleted.
-- Keep the New task project context bar directly attached to the composer. It must show the repository, local execution, and current Git branch, and may register another local project.
+- Keep the New task project context bar directly attached to the composer. It must show the repository, local execution, and selectable task base branch, and may register another local project.
 - Keep Settings anchored at the bottom of the left navigation; do not add a separate Runs module or “View all sessions” action because the project-grouped Sessions list is the navigation surface for saved work.
 - Settings persist every control change automatically and expose only lightweight saving or error feedback; do not add a manual Save settings action.
 - Keep task notifications opt-in and project-scoped. Request browser permission only after an explicit user action, expose separate success and failure preferences, and explain that the Web UI must remain open for delivery.

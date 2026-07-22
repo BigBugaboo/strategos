@@ -108,6 +108,8 @@ async function fixture(t, overrides = {}) {
     sessionStore,
     createSessionStoreFn: (projectRoot) => projectRoot === secondRoot ? secondSessionStore : sessionStore,
     currentBranchFn: async (projectRoot) => projectRoot === secondRoot ? "feature/second" : "main",
+    listBranchesFn: async (projectRoot) =>
+      projectRoot === secondRoot ? ["feature/second"] : ["main", "feature/review"],
     projectRegistry,
     planWithStrategistFn: overrides.planWithStrategistFn || (async (input) => {
       planningRoots.push(input.root);
@@ -147,6 +149,36 @@ test("Web bootstrap exposes repository, sessions, and configured agents", async 
   assert.deepEqual(body.agents, ["claude", "codex", "copilot"]);
   assert.deepEqual(body.notifications, { enabled: false, onSuccess: true, onFailure: true });
   assert.deepEqual(body.sessions, []);
+});
+
+test("Web branch selection validates and persists the task base ref", async (t) => {
+  const { url } = await fixture(t);
+  const branches = await fetch(`${url}/api/branches`);
+  assert.equal(branches.status, 200);
+  assert.deepEqual(await branches.json(), {
+    current: "main",
+    branches: ["main", "feature/review"],
+  });
+
+  const created = await fetch(`${url}/api/goals`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      goal: "Review from the selected base",
+      executionMode: "manual",
+      baseRef: "feature/review",
+    }),
+  });
+  assert.equal(created.status, 202);
+  assert.equal((await created.json()).baseRef, "feature/review");
+
+  const rejected = await fetch(`${url}/api/goals`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ goal: "Use an invalid branch", baseRef: "missing" }),
+  });
+  assert.equal(rejected.status, 400);
+  assert.match((await rejected.json()).error, /unknown branch/);
 });
 
 test("Web settings persist normalized task notification preferences", async (t) => {

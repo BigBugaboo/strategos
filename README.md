@@ -206,9 +206,10 @@ and worker execution. Registered paths are stored locally in
 `~/.strategos/projects.json`.
 
 When New task is open, the composer shows a compact context bar with the
-current repository, local execution environment, and Git branch. Use the
-repository control to switch registered projects or add another local project;
-the selected path is applied before the task is sent to the strategist.
+current repository, local execution environment, and task base branch. Use the
+repository control to switch registered projects or add another local project,
+and use the branch control to choose which branch seeds new worker worktrees.
+The selected path and branch are applied before the task is sent to the strategist.
 
 Settings controls the default execution mode, strategist CLI, and optional
 desktop notifications for successful or failed tasks. Browser permission is

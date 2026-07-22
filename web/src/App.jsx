@@ -528,19 +528,30 @@ function SessionManager({ groups, onClose, onChanged }) {
   );
 }
 
-function ProjectContextBar({ repository, projects, disabled, onSelectProject, onAdd }) {
-  const [open, setOpen] = useState(false);
+function ProjectContextBar({
+  repository,
+  projects,
+  disabled,
+  selectedBranch,
+  onSelectProject,
+  onSelectBranch,
+  onAdd,
+}) {
+  const [menu, setMenu] = useState(null);
   const [adding, setAdding] = useState(false);
   const [projectPath, setProjectPath] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [branches, setBranches] = useState(null);
+  const [branchError, setBranchError] = useState("");
   const control = useRef(null);
+  const branch = selectedBranch || repository.branch || "Branch unavailable";
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!menu) return undefined;
     const closeMenu = (event) => {
-      if (event.key === "Escape") setOpen(false);
-      if (event.type === "pointerdown" && !control.current?.contains(event.target)) setOpen(false);
+      if (event.key === "Escape") setMenu(null);
+      if (event.type === "pointerdown" && !control.current?.contains(event.target)) setMenu(null);
     };
     globalThis.addEventListener("keydown", closeMenu);
     globalThis.addEventListener("pointerdown", closeMenu);
@@ -548,13 +559,36 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
       globalThis.removeEventListener("keydown", closeMenu);
       globalThis.removeEventListener("pointerdown", closeMenu);
     };
-  }, [open]);
+  }, [menu]);
+
+  // A project switch invalidates the cached branch list.
+  useEffect(() => {
+    setBranches(null);
+  }, [repository.path]);
+
+  // Load branches lazily the first time the branch menu opens.
+  useEffect(() => {
+    if (menu !== "branch" || branches) return undefined;
+    let active = true;
+    setBranchError("");
+    api("/api/branches")
+      .then((result) => active && setBranches(result.branches || []))
+      .catch((requestError) => active && setBranchError(requestError.message));
+    return () => {
+      active = false;
+    };
+  }, [menu, branches]);
 
   const chooseProject = async (project) => {
     if (project.path !== repository.path) await onSelectProject(project.path);
-    setOpen(false);
+    setMenu(null);
     setAdding(false);
     setMessage("");
+  };
+
+  const chooseBranch = (name) => {
+    onSelectBranch(name);
+    setMenu(null);
   };
 
   const addProject = async (event) => {
@@ -566,7 +600,7 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
       await onAdd(projectPath.trim());
       setProjectPath("");
       setAdding(false);
-      setOpen(false);
+      setMenu(null);
     } catch (requestError) {
       setMessage(requestError.message);
     } finally {
@@ -581,10 +615,10 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
         className="project-context-trigger"
         aria-label={`Current project: ${repository.name}`}
         aria-haspopup="menu"
-        aria-expanded={open}
+        aria-expanded={menu === "project"}
         disabled={disabled}
         onClick={() => {
-          setOpen((value) => !value);
+          setMenu((value) => (value === "project" ? null : "project"));
           setAdding(false);
           setMessage("");
         }}
@@ -593,18 +627,27 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
         <span>{repository.name}</span>
         <CaretDown />
       </button>
+      <span className="project-context-divider" aria-hidden="true" />
       <span className="project-context-meta" title="Execution environment">
         <Laptop />
         <span>Local</span>
       </span>
-      <span
-        className="project-context-meta branch"
-        title={repository.branch || "Branch unavailable"}
+      <span className="project-context-divider" aria-hidden="true" />
+      <button
+        type="button"
+        className="project-context-trigger branch"
+        aria-label={`Base branch: ${branch}`}
+        aria-haspopup="menu"
+        aria-expanded={menu === "branch"}
+        disabled={disabled}
+        title={`Agents branch new work from ${branch}`}
+        onClick={() => setMenu((value) => (value === "branch" ? null : "branch"))}
       >
         <GitBranch />
-        <span>{repository.branch || "Branch unavailable"}</span>
-      </span>
-      {open && (
+        <span>{branch}</span>
+        <CaretDown />
+      </button>
+      {menu === "project" && (
         <div className="project-context-menu">
           <div className="project-context-menu-heading">Projects</div>
           <div className="project-context-options" role="menu" aria-label="Select project">
@@ -656,6 +699,44 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
                 <PlusSquare />
                 Add local project
               </button>
+            )}
+          </div>
+        </div>
+      )}
+      {menu === "branch" && (
+        <div className="project-context-menu branch-menu">
+          <div className="project-context-menu-heading">Base branch</div>
+          <p className="project-context-menu-note">
+            Agents create their isolated worktrees from this branch.
+          </p>
+          <div className="project-context-options" role="menu" aria-label="Select base branch">
+            {branchError ? (
+              <p className="project-context-empty" role="alert">
+                {branchError}
+              </p>
+            ) : !branches ? (
+              <p className="project-context-empty">Loading branches…</p>
+            ) : branches.length ? (
+              branches.map((name) => {
+                const current = name === branch;
+                return (
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={current}
+                    key={name}
+                    onClick={() => chooseBranch(name)}
+                  >
+                    <GitBranch weight={current ? "fill" : "regular"} />
+                    <span>
+                      <strong>{name}</strong>
+                    </span>
+                    {current && <CheckCircle weight="fill" />}
+                  </button>
+                );
+              })
+            ) : (
+              <p className="project-context-empty">No branches found.</p>
             )}
           </div>
         </div>
@@ -1333,6 +1414,7 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState("auto");
   const [attachments, setAttachments] = useState([]);
+  const [selectedBranch, setSelectedBranch] = useState(null);
   const [liveEvents, setLiveEvents] = useState([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1364,6 +1446,11 @@ export function App() {
       if (current.size) return current;
       return new Set([data.repository.path]);
     });
+  }, [data?.repository.path]);
+
+  // The base-branch selection is per project; clear it when the project changes.
+  useEffect(() => {
+    setSelectedBranch(null);
   }, [data?.repository.path]);
 
   const refresh = async (projectPath = savedProjectPath(), resetMode = false) => {
@@ -1653,7 +1740,12 @@ export function App() {
       }
       const session = await api("/api/goals", {
         method: "POST",
-        body: JSON.stringify({ goal, executionMode: mode, attachmentPaths }),
+        body: JSON.stringify({
+          goal,
+          executionMode: mode,
+          attachmentPaths,
+          baseRef: selectedBranch || undefined,
+        }),
       });
       setData((current) => ({
         ...current,
@@ -1871,7 +1963,9 @@ export function App() {
                   repository={data.repository}
                   projects={sidebarGroupsFor(data)}
                   disabled={switchingProject}
+                  selectedBranch={selectedBranch}
                   onSelectProject={selectProject}
+                  onSelectBranch={setSelectedBranch}
                   onAdd={addProject}
                 />
               )}
