@@ -8,11 +8,30 @@ import { loadConfig, normalizeNotificationSettings, saveConfig } from "./config.
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
 import { loadSessionTaskDiff } from "./diffs.js";
-import { currentBranch, listBranches } from "./git.js";
+import { createBranch, currentBranch, listBranches } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { createProjectRegistry } from "./projects.js";
+import { runCommand } from "./process.js";
 import { buildResumeContext, createSessionStore } from "./session.js";
+
+const BRANCH_NAME_PATTERN = /^(?!-)(?!.*\.\.)(?!.*[/.]$)[A-Za-z0-9._/-]+$/;
+
+async function pickDirectory() {
+  if (process.platform !== "darwin") {
+    throw Object.assign(
+      new Error("the folder picker is only available on macOS; enter the path manually"),
+      { status: 501 },
+    );
+  }
+  const script = 'POSIX path of (choose folder with prompt "Select a Git repository for Strategos")';
+  const result = await runCommand("osascript", ["-e", script], { timeoutMs: 120_000 });
+  if (result.code !== 0) {
+    if (/User canceled/i.test(result.stderr)) return null;
+    throw new Error(result.stderr.trim() || "could not open the folder picker");
+  }
+  return result.stdout.trim() || null;
+}
 
 const WEB_ROOT = fileURLToPath(new URL("../web/dist/", import.meta.url));
 const MAX_BODY_BYTES = 28 * 1024 * 1024;
@@ -140,6 +159,8 @@ export function createWebApplication(options) {
   const createSessionStoreFn = options.createSessionStoreFn || createSessionStore;
   const currentBranchFn = options.currentBranchFn || currentBranch;
   const listBranchesFn = options.listBranchesFn || listBranches;
+  const createBranchFn = options.createBranchFn || createBranch;
+  const pickDirectoryFn = options.pickDirectoryFn || pickDirectory;
   const projectRegistry = options.projectRegistry || createProjectRegistry({ initialRoot });
   const webControl = options.webControl;
   const sessionStores = new Map();
@@ -596,6 +617,33 @@ export function createWebApplication(options) {
           current,
           branches: branches.filter((branch) => !branch.startsWith("strategos/")),
         });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/branches") {
+        const input = await readJsonBody(request);
+        const name = String(input.name || "").trim();
+        if (!BRANCH_NAME_PATTERN.test(name)) {
+          throw Object.assign(new Error("invalid branch name"), { status: 400 });
+        }
+        const existing = await listBranchesFn(root);
+        if (existing.includes(name)) {
+          throw Object.assign(new Error(`branch already exists: ${name}`), { status: 409 });
+        }
+        const startPoint = await resolveBaseRef(root, input.from);
+        await createBranchFn(root, name, startPoint || "HEAD");
+        const [current, branches] = await Promise.all([
+          currentBranchFn(root),
+          listBranchesFn(root),
+        ]);
+        sendJson(response, 201, {
+          current,
+          created: name,
+          branches: branches.filter((branch) => !branch.startsWith("strategos/")),
+        });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/pick-directory") {
+        sendJson(response, 200, { path: await pickDirectoryFn() });
         return;
       }
       if (request.method === "POST" && pathname === "/api/goals") {

@@ -1312,6 +1312,65 @@ input:focus-visible {
   color: #ff8580;
   font-size: 9px;
 }
+.project-context-search {
+  width: 100%;
+  height: 32px;
+  margin-bottom: 4px;
+  padding: 0 10px;
+  border: 1px solid #33414f;
+  border-radius: 7px;
+  outline: 0;
+  background: #0d1722;
+  color: #e2e7ed;
+  font: inherit;
+  font-size: 11.5px;
+}
+.project-context-search::placeholder {
+  color: #66717f;
+}
+.project-context-search:focus {
+  border-color: #6e63b4;
+}
+.project-context-options > button.project-context-create {
+  color: #c3b4ff;
+}
+.project-context-options > button.project-context-create:hover:not(:disabled) {
+  background: #221d3a;
+}
+.project-context-browse-row {
+  display: flex;
+  gap: 6px;
+}
+.project-context-browse-row input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.project-context-browse {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid #354353;
+  border-radius: 6px;
+  background: #16212e;
+  color: #cdd4dd;
+  font-size: 11px;
+  cursor: pointer;
+}
+.project-context-browse:hover {
+  background: #1b2836;
+}
+.project-context-browse:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.project-context-browse svg {
+  width: 14px;
+  height: 14px;
+}
 .project-context-menu-footer form > div {
   display: flex;
   justify-content: flex-end;
@@ -1336,18 +1395,74 @@ input:focus-visible {
   cursor: not-allowed;
   opacity: 0.45;
 }
+@property --composer-glow {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 .composer {
+  position: relative;
   border: 1px solid #354252;
   border-radius: 10px;
   background: #101a27;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   padding: 13px 14px 9px;
 }
+/* Focus highlight: a clockwise-rotating conic gradient rendered as a crisp
+   border ring (::before) plus a soft diffuse halo behind it (::after). */
+.composer::before,
+.composer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--composer-glow),
+    #39d5df,
+    #9b5cff,
+    #ffb35c,
+    #4dd7e0,
+    #39d5df
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+.composer::before {
+  padding: 1.5px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.composer::after {
+  inset: -4px;
+  z-index: -1;
+  filter: blur(11px);
+}
 .composer:focus-within {
-  border-color: #526174;
-  box-shadow:
-    0 18px 48px rgba(0, 0, 0, 0.32),
-    0 0 0 1px rgba(128, 111, 255, 0.22);
+  border-color: transparent;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+}
+.composer:focus-within::before {
+  opacity: 1;
+  animation: composer-glow-spin 4.5s linear infinite;
+}
+.composer:focus-within::after {
+  opacity: 0.45;
+  animation: composer-glow-spin 4.5s linear infinite;
+}
+@keyframes composer-glow-spin {
+  to {
+    --composer-glow: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer:focus-within::before,
+  .composer:focus-within::after {
+    animation: none;
+  }
 }
 .composer textarea {
   width: 100%;

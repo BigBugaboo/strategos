@@ -208,7 +208,9 @@ and worker execution. Registered paths are stored locally in
 When New task is open, the composer shows a compact context bar with the
 current repository, local execution environment, and task base branch. Use the
 repository control to switch registered projects or add another local project,
-and use the branch control to choose which branch seeds new worker worktrees.
+using either a typed path or the native macOS folder picker. Use the branch
+control to search existing branches, create a branch from the selected base,
+or choose which branch seeds new worker worktrees.
 The selected path and branch are applied before the task is sent to the strategist.
 
 Settings controls the default execution mode, strategist CLI, and optional
