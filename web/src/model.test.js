@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   historyDate,
+  findDiffFile,
   mergeSessionEvents,
   notificationOutcome,
   sessionActivityState,
+  sessionStartedDate,
+  sessionFileChanges,
   sessionTaskState,
   shouldSubmitComposerKey,
   shouldNotifyForEvent,
@@ -65,6 +68,10 @@ describe("task completion notifications", () => {
 });
 
 describe("real session presentation", () => {
+  it("formats the inspector start time in English", () => {
+    expect(sessionStartedDate(new Date(2026, 6, 21, 18, 41))).toBe("Jul 21, 2026, 6:41 PM");
+  });
+
   it("formats history dates relative to the current day", () => {
     const now = new Date(2026, 6, 21, 12);
     expect(historyDate(new Date(2026, 6, 21, 10, 24), now)).toMatch(/10:24/);
@@ -98,6 +105,39 @@ describe("real session presentation", () => {
       expect.objectContaining({ id: "review", agent: "codex", status: "preparing" }),
     ]);
     expect(result.changedFiles).toEqual(["src/index.js"]);
+  });
+
+  it("keeps changed files associated with their task diff snapshot", () => {
+    const session = {
+      manifest: {
+        tasks: {
+          implementation: {
+            id: "implementation",
+            agent: "codex",
+            changedFiles: ["src/index.js"],
+            diff: { available: true, truncated: false },
+          },
+        },
+      },
+    };
+    expect(sessionFileChanges(session)).toEqual([
+      {
+        taskId: "implementation",
+        path: "src/index.js",
+        agent: "codex",
+        available: true,
+        truncated: false,
+      },
+    ]);
+  });
+
+  it("matches parsed diff paths for added and modified files", () => {
+    const files = [
+      { oldPath: "/dev/null", newPath: "src/new.js" },
+      { oldPath: "a/src/existing.js", newPath: "b/src/existing.js" },
+    ];
+    expect(findDiffFile(files, "src/new.js")).toBe(files[0]);
+    expect(findDiffFile(files, "src/existing.js")).toBe(files[1]);
   });
 
   it("shows the headless strategist as active while planning", () => {

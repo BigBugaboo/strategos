@@ -1,46 +1,57 @@
-# New task project context bar design QA
+# Strategos session manager design QA
 
 ## Evidence
 
-- Source layout: `/var/folders/s4/zvr523712rzcdfswttvppw400000gn/T/codex-clipboard-48ee2f41-6fdf-436f-bfb9-09f683bb58b8.png` (3026 × 1896 pixels, normalized from 2× to a 1513 × 948 CSS target)
-- Source component reference: `/var/folders/s4/zvr523712rzcdfswttvppw400000gn/T/codex-clipboard-e94c344d-d9bf-4ec6-9992-f43e4a46e6ce.png` (1450 × 402 pixels)
-- Implementation capture: `/private/tmp/strategos-project-toolbar-new-task.png` (1337 × 948 captured pixels)
-- Open-menu capture: `/private/tmp/strategos-project-toolbar-menu.png` (1337 × 948 captured pixels)
-- Full-view comparison: `/private/tmp/strategos-project-toolbar-comparison.png`
-- Focused composer comparison: `/private/tmp/strategos-project-toolbar-detail-comparison.png`
-- Browser CSS viewport: 1513 × 948; the in-app browser returned a 1337 × 948 visible-tab capture, so the full comparison scales the implementation horizontally to the source CSS target. Device density was otherwise treated as 1×.
-- Runtime: production Web assets served by `strategos web` at `http://127.0.0.1:4323/`
-- State: empty New task, project context bar closed and open-menu variants
+- Source visual truth: `/var/folders/s4/zvr523712rzcdfswttvppw400000gn/T/codex-clipboard-8b69f45a-55f8-44b0-b675-2e0a4de4d9b6.png`
+- Source pixels: 578 × 1564
+- Runtime: `http://127.0.0.1:4310/`
+- Runtime build: `index-AhaxuEZL.css` and `index-DyJNUqbH.js`
+- Inspection viewport: 1280 × 720
+- State: session sidebar visible, workspace project expanded, manager dialog open with two persisted sessions
 
 ## Full-view comparison
 
-The source and implementation were placed in one side-by-side comparison. The implementation preserves the existing Strategos dark shell, sidebar proportions, centered empty state, and bottom composer position. The requested context bar occupies the annotated space immediately above the composer without moving or obscuring the primary input.
+The source marks the right edge of the `Sessions` heading as the intended entry point. The implementation places a quiet gear button in that exact header row, aligned with the label and inside the existing sidebar gutter. The icon inherits the sidebar's muted color and only gains emphasis on hover or keyboard focus, so it does not compete with `New task` or the active project.
 
-## Focused comparison
+Opening the gear presents a centered `Manage sessions` dialog instead of changing the sidebar into a destructive mode. This preserves project navigation while providing a complete cross-project inventory, multi-selection, select-all behavior, and clear Archive, Restore, and Delete actions.
 
-The source component and rendered composer were placed in one focused comparison. Both use a narrow toolbar attached behind the top edge of the composer, with repository, local environment, and branch ordered from left to right. The implementation intentionally keeps Strategos dark tokens and English product copy instead of copying the reference's light theme and localized labels.
+## Focused-region comparison
 
-## Fidelity surfaces
+- Placement: gear aligned to the right of `Sessions`, matching the annotated source region.
+- Hit area: 26 × 26 pixels with an accessible `Manage sessions` label and tooltip.
+- Visual hierarchy: no filled container at rest; existing purple accent appears on focus.
+- Modal rhythm: project groups, rows, and the sticky action footer use the existing navy surfaces, borders, typography, and spacing tokens.
+- Responsive behavior: on narrow viewports the dialog expands to the available width and the action bar wraps without clipping.
 
-- Fonts and typography: existing Strategos system-sans typography is retained. Toolbar labels use an 11px UI size, medium repository emphasis, and single-line truncation for long repository or branch names.
-- Spacing and layout rhythm: the bar is 39px high, inset 12px from the composer edges, and overlaps the composer border by 1px to read as one control. Icon and label gaps follow the existing mode control density.
-- Colors and visual tokens: borders, hover states, surfaces, shadows, and muted text reuse the established dark palette. The green selected-project mark matches existing success semantics.
-- Image and icon fidelity: the existing Strategos raster logo is unchanged. Folder, laptop, branch, caret, check, and add icons come from the project's Phosphor icon library; no placeholder, handcrafted SVG, or CSS-drawn asset was introduced.
-- Copy and content: the visible order is repository, `Local`, and the real Git branch. The menu exposes registered projects with paths and a working `Add local project` form.
+## Interaction QA
 
-## Interaction verification
+- Gear opens the batch manager and close restores focus to the trigger.
+- Escape and backdrop clicks close the dialog; focus is trapped while it is open.
+- Select all and individual checkboxes update the selected count and action availability.
+- Archive and Restore persist through the session store and immediately update the sidebar.
+- Delete requires a second confirmation and explicitly states that saved run artifacts remain on disk.
+- Active sessions are disabled in the UI and rejected by the API.
+- Empty selections and more than 100 IDs are rejected by the API.
 
-- Opened and closed the project menu from the composer toolbar.
-- Switched from `strategos-project-toolbar` to the registered `strategos` project and confirmed the header, path, and branch updated.
-- Opened the add-project form and cancelled it without changing the registry.
-- Confirmed the composer remained usable and no browser console warnings or errors were emitted.
+## Verification
 
-## Findings and comparison history
+- `npm run check`: passed
+- `node --test test/session.test.js test/web-server.test.js test/web-daemon.test.js`: 17 tests passed
+- `npm run web:check`: passed
+- `npm run web:test`: 12 tests passed
+- `npm run web:build`: passed
+- `git diff --check`: passed
+- Background runtime: HTTP 200 on port 4310 after the invoking terminal exited
 
-Initial comparison found no actionable P0, P1, or P2 differences for the requested project-switching toolbar. The light/dark theme difference is intentional because this is an extension of the existing Strategos interface, not a replacement of its design system. No visual fixes were required after the first browser-rendered comparison.
+## Project context bar regression check
 
-## Follow-up polish
+- Missing-toolbar reference: `/var/folders/s4/zvr523712rzcdfswttvppw400000gn/T/codex-clipboard-e1f52b27-8e99-41f3-bbe1-85d3b19dc1a5.png`
+- Final v0.22.0 capture: `/private/tmp/strategos-v0.22.0-toolbar.jpg`
+- Side-by-side comparison: `/private/tmp/strategos-toolbar-comparison.jpg`
+- The final New task composer exposes the selected repository, local execution environment, and selectable task base branch directly above the input.
+- The project menu opens from the toolbar, identifies the active project, lists registered projects, and exposes the local-project registration action.
+- Browser diagnostics reported no console errors.
 
-- P3: a future iteration could expose a worktree or remote label if Strategos adds those execution targets.
+No actionable P0, P1, or P2 findings remain for the requested session-management flow.
 
 final result: passed

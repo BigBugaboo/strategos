@@ -1,30 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Diff, Hunk, parseDiff } from "react-diff-view";
 import {
+  Archive,
   ArrowUp,
+  ArrowCounterClockwise,
   CaretDown,
   CaretRight,
   CheckCircle,
   ClockCounterClockwise,
+  FileCode,
   FolderOpen,
   GearSix,
   GitBranch,
   Info,
   Laptop,
   Paperclip,
+  Play,
   PlusSquare,
   PushPin,
   SidebarSimple,
   SlidersHorizontal,
   Sparkle,
   StopCircle,
+  Trash,
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import {
+  findDiffFile,
   historyDate,
   mergeSessionEvents,
   notificationOutcome,
   sessionActivityState,
+  sessionFileChanges,
+  sessionStartedDate,
+  sessionTaskState,
   shouldSubmitComposerKey,
   shouldNotifyForEvent,
   sortSidebarSessions,
@@ -32,6 +42,7 @@ import {
 
 const AGENT_COLORS = { claude: "#39d5df", codex: "#9b5cff", copilot: "#a3aab6" };
 const PROJECT_STORAGE_KEY = "strategos.selectedProject";
+const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 function shortPath(value) {
   if (!value) return "";
@@ -70,7 +81,9 @@ function eventText(event) {
   if (event.type === "task_started") return `${event.task.agent}: Started ${event.task.id}`;
   if (event.type === "task_finished")
     return `${event.task.agent}: ${event.task.status} ${event.task.id}`;
-  if (event.type === "run_finished") return `Strategos: Run ${event.manifest.status}`;
+  if (event.type === "run_finished") {
+    return `Strategos: Run ${event.manifest?.status || event.status || "finished"}`;
+  }
   if (event.type === "session_stopping") return "Strategos: Stopping active CLI processes";
   if (event.type === "session_interrupted") return "Strategos: Session stopped";
   if (event.type === "session_error") return `Error: ${event.error}`;
@@ -111,65 +124,24 @@ function SessionSidebar({
   selectedId,
   view,
   expandedProjects,
-  disabled,
   onToggleProject,
   onSelectProject,
   onSelectSession,
   onTogglePin,
-  onAdd,
+  onManage,
 }) {
-  const [adding, setAdding] = useState(false);
-  const [projectPath, setProjectPath] = useState("");
-  const [message, setMessage] = useState("");
-  const [saving, setSaving] = useState(false);
-  const section = useRef(null);
-
-  useEffect(() => {
-    if (!adding) return undefined;
-    const closePopover = (event) => {
-      if (event.key === "Escape") setAdding(false);
-      if (event.type === "pointerdown" && !section.current?.contains(event.target))
-        setAdding(false);
-    };
-    globalThis.addEventListener("keydown", closePopover);
-    globalThis.addEventListener("pointerdown", closePopover);
-    return () => {
-      globalThis.removeEventListener("keydown", closePopover);
-      globalThis.removeEventListener("pointerdown", closePopover);
-    };
-  }, [adding]);
-
-  const addProject = async (event) => {
-    event.preventDefault();
-    if (!projectPath.trim() || saving) return;
-    setSaving(true);
-    setMessage("");
-    try {
-      await onAdd(projectPath.trim());
-      setProjectPath("");
-      setAdding(false);
-    } catch (error) {
-      setMessage(error.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
-    <section ref={section} className="session-browser">
+    <section className="session-browser">
       <div className="sidebar-section-heading">
         <h2>Sessions</h2>
         <button
-          className="project-add"
           type="button"
-          aria-label="Add local project"
-          title="Add local project"
-          onClick={() => {
-            setAdding((value) => !value);
-            setMessage("");
-          }}
+          className="session-manage-trigger"
+          aria-label="Manage sessions"
+          title="Manage sessions"
+          onClick={onManage}
         >
-          <PlusSquare />
+          <GearSix />
         </button>
       </div>
       <div className="session-groups" aria-label="Sessions by project">
@@ -184,7 +156,7 @@ function SessionSidebar({
                 className="project-group-toggle"
                 aria-expanded={expanded}
                 aria-current={current ? "true" : undefined}
-                disabled={disabled || group.unavailable}
+                disabled={group.unavailable}
                 onClick={() => void onToggleProject(group).catch(() => {})}
                 title={group.path}
               >
@@ -241,7 +213,6 @@ function SessionSidebar({
         <select
           aria-label="Current project"
           value={repository.path}
-          disabled={disabled}
           onChange={(event) => void onSelectProject(event.target.value).catch(() => {})}
         >
           {groups.map((group) => (
@@ -250,69 +221,337 @@ function SessionSidebar({
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          aria-label="Add local project"
-          title="Add local project"
-          onClick={() => {
-            setAdding((value) => !value);
-            setMessage("");
-          }}
-        >
-          <PlusSquare />
-        </button>
       </div>
-      {adding && (
-        <form className="project-popover" onSubmit={addProject}>
-          <div className="popover-heading">
-            <span>
-              <strong>Open local project</strong>
-              <small>Add a Git repository to this workspace.</small>
-            </span>
-            <button
-              type="button"
-              aria-label="Close project picker"
-              onClick={() => setAdding(false)}
-            >
-              <X />
-            </button>
-          </div>
-          <label htmlFor="project-path">Repository path</label>
-          <input
-            id="project-path"
-            autoFocus
-            placeholder="/Users/you/projects/example"
-            value={projectPath}
-            onChange={(event) => setProjectPath(event.target.value)}
-          />
-          {message && <p role="alert">{message}</p>}
-          <div>
-            <button type="button" onClick={() => setAdding(false)}>
-              Cancel
-            </button>
-            <button type="submit" disabled={!projectPath.trim() || saving}>
-              {saving ? "Adding…" : "Add project"}
-            </button>
-          </div>
-        </form>
-      )}
     </section>
   );
 }
 
-function ProjectContextBar({ repository, projects, disabled, onSelectProject, onAdd }) {
-  const [open, setOpen] = useState(false);
+function SessionManager({ groups, onClose, onChanged }) {
+  const sourceGroups = useRef(groups);
+  const [managedGroups, setManagedGroups] = useState([]);
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageError, setMessageError] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const dialog = useRef(null);
+  const closeButton = useRef(null);
+  const previousFocus = useRef(globalThis.document?.activeElement);
+  const applyingRef = useRef(applying);
+  const onCloseRef = useRef(onClose);
+  applyingRef.current = applying;
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      sourceGroups.current
+        .filter((group) => !group.unavailable)
+        .map(async (group) => ({
+          ...group,
+          sessions: await api("/api/sessions?includeArchived=true", {
+            projectPath: group.path,
+          }),
+        })),
+    )
+      .then((nextGroups) => {
+        if (!cancelled) setManagedGroups(nextGroups);
+      })
+      .catch((requestError) => {
+        if (!cancelled) {
+          setMessage(requestError.message);
+          setMessageError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    closeButton.current?.focus();
+    const close = (event) => {
+      if (event.key === "Escape" && !applyingRef.current) onCloseRef.current();
+      if (event.key !== "Tab") return;
+      const focusable = [
+        ...(dialog.current?.querySelectorAll(
+          'button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+        ) || []),
+      ];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && globalThis.document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && globalThis.document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    globalThis.addEventListener("keydown", close);
+    return () => {
+      globalThis.removeEventListener("keydown", close);
+      previousFocus.current?.focus?.();
+    };
+  }, []);
+
+  const keyFor = (projectPath, sessionId) => `${projectPath}\u0000${sessionId}`;
+  const allSessions = managedGroups.flatMap((group) =>
+    group.sessions.map((session) => ({
+      group,
+      session,
+      key: keyFor(group.path, session.id),
+      active: (group.activeSessionIds || []).includes(session.id),
+    })),
+  );
+  const manageableSessions = allSessions.filter((item) => !item.active);
+  const selectedSessions = allSessions.filter((item) => selectedKeys.has(item.key));
+  const archiveCount = selectedSessions.filter((item) => !item.session.archivedAt).length;
+  const restoreCount = selectedSessions.filter((item) => item.session.archivedAt).length;
+  const allSelected =
+    manageableSessions.length > 0 && manageableSessions.every((item) => selectedKeys.has(item.key));
+
+  const toggleSession = (key) => {
+    setConfirmDelete(false);
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setConfirmDelete(false);
+    setSelectedKeys(allSelected ? new Set() : new Set(manageableSessions.map((item) => item.key)));
+  };
+
+  const applyAction = async (action) => {
+    const targets = selectedSessions.filter((item) => {
+      if (action === "archive") return !item.session.archivedAt;
+      if (action === "restore") return Boolean(item.session.archivedAt);
+      return true;
+    });
+    if (!targets.length || applying) return;
+    const byProject = new Map();
+    for (const item of targets) {
+      const ids = byProject.get(item.group.path) || [];
+      ids.push(item.session.id);
+      byProject.set(item.group.path, ids);
+    }
+    setApplying(action);
+    setMessage("");
+    setMessageError(false);
+    try {
+      const results = await Promise.all(
+        [...byProject].map(async ([projectPath, sessionIds]) => ({
+          projectPath,
+          response: await api("/api/sessions/batch", {
+            projectPath,
+            method: "POST",
+            body: JSON.stringify({ action, sessionIds }),
+          }),
+        })),
+      );
+      setManagedGroups((current) =>
+        current.map((group) => {
+          const result = results.find((item) => item.projectPath === group.path)?.response;
+          if (!result) return group;
+          const affected = new Set(result.sessionIds);
+          if (action === "delete") {
+            return {
+              ...group,
+              sessions: group.sessions.filter((session) => !affected.has(session.id)),
+            };
+          }
+          const updated = new Map(result.sessions.map((session) => [session.id, session]));
+          return {
+            ...group,
+            sessions: group.sessions.map((session) => updated.get(session.id) || session),
+          };
+        }),
+      );
+      onChanged({ action, results });
+      setSelectedKeys(new Set());
+      setConfirmDelete(false);
+      setMessage(
+        action === "delete"
+          ? `${targets.length} session${targets.length === 1 ? "" : "s"} deleted.`
+          : `${targets.length} session${targets.length === 1 ? "" : "s"} ${action === "archive" ? "archived" : "restored"}.`,
+      );
+    } catch (requestError) {
+      setMessage(requestError.message);
+      setMessageError(true);
+    } finally {
+      setApplying("");
+    }
+  };
+
+  return (
+    <div
+      className="session-manager-backdrop"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget && !applying) onClose();
+      }}
+    >
+      <section
+        ref={dialog}
+        className="session-manager"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="session-manager-title"
+      >
+        <header>
+          <span>
+            <h2 id="session-manager-title">Manage sessions</h2>
+            <p>Archive or remove session history across local projects.</p>
+          </span>
+          <button
+            ref={closeButton}
+            type="button"
+            aria-label="Close session manager"
+            onClick={onClose}
+            disabled={Boolean(applying)}
+          >
+            <X />
+          </button>
+        </header>
+        <div className="session-manager-toolbar">
+          <label>
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              disabled={!manageableSessions.length || Boolean(applying)}
+            />
+            <span>
+              {selectedSessions.length ? `${selectedSessions.length} selected` : "Select all"}
+            </span>
+          </label>
+          <div>
+            <button
+              type="button"
+              disabled={!archiveCount || Boolean(applying)}
+              onClick={() => void applyAction("archive")}
+            >
+              <Archive /> {applying === "archive" ? "Archiving…" : "Archive"}
+            </button>
+            <button
+              type="button"
+              disabled={!restoreCount || Boolean(applying)}
+              onClick={() => void applyAction("restore")}
+            >
+              <ArrowCounterClockwise /> {applying === "restore" ? "Restoring…" : "Restore"}
+            </button>
+            <button
+              type="button"
+              className="danger"
+              disabled={!selectedSessions.length || Boolean(applying)}
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash /> Delete
+            </button>
+          </div>
+        </div>
+        <div className="session-manager-list">
+          {loading && <p className="session-manager-empty">Loading sessions…</p>}
+          {!loading && !allSessions.length && (
+            <p className="session-manager-empty">No saved sessions yet.</p>
+          )}
+          {!loading &&
+            managedGroups.map((group) =>
+              group.sessions.length ? (
+                <section className="session-manager-group" key={group.path}>
+                  <h3>
+                    {group.name}
+                    <small>{shortPath(group.path)}</small>
+                  </h3>
+                  {sortSidebarSessions(group.sessions).map((session) => {
+                    const key = keyFor(group.path, session.id);
+                    const active = (group.activeSessionIds || []).includes(session.id);
+                    return (
+                      <label
+                        className={`session-manager-row${active ? " is-active" : ""}`}
+                        key={session.id}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedKeys.has(key)}
+                          disabled={active || Boolean(applying)}
+                          onChange={() => toggleSession(key)}
+                        />
+                        <span>
+                          <strong>{session.goal}</strong>
+                          <small>
+                            {historyDate(session.updatedAt)} · {statusLabel(session.status)}
+                          </small>
+                        </span>
+                        {session.archivedAt && <em>Archived</em>}
+                        {active && <em>Active</em>}
+                      </label>
+                    );
+                  })}
+                </section>
+              ) : null,
+            )}
+        </div>
+        {confirmDelete && (
+          <div className="session-delete-confirmation" role="alert">
+            <span>
+              <strong>
+                Delete {selectedSessions.length} session{selectedSessions.length === 1 ? "" : "s"}?
+              </strong>
+              <small>Session history will be removed. Saved run artifacts stay on disk.</small>
+            </span>
+            <div>
+              <button type="button" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </button>
+              <button type="button" className="danger" onClick={() => void applyAction("delete")}>
+                Delete permanently
+              </button>
+            </div>
+          </div>
+        )}
+        {message && (
+          <p className={`session-manager-message${messageError ? " is-error" : ""}`} role="status">
+            {message}
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ProjectContextBar({
+  repository,
+  projects,
+  disabled,
+  selectedBranch,
+  onSelectProject,
+  onSelectBranch,
+  onAdd,
+}) {
+  const [menu, setMenu] = useState(null);
   const [adding, setAdding] = useState(false);
   const [projectPath, setProjectPath] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [branches, setBranches] = useState(null);
+  const [branchError, setBranchError] = useState("");
   const control = useRef(null);
+  const branch = selectedBranch || repository.branch || "Branch unavailable";
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!menu) return undefined;
     const closeMenu = (event) => {
-      if (event.key === "Escape") setOpen(false);
-      if (event.type === "pointerdown" && !control.current?.contains(event.target)) setOpen(false);
+      if (event.key === "Escape") setMenu(null);
+      if (event.type === "pointerdown" && !control.current?.contains(event.target)) setMenu(null);
     };
     globalThis.addEventListener("keydown", closeMenu);
     globalThis.addEventListener("pointerdown", closeMenu);
@@ -320,13 +559,36 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
       globalThis.removeEventListener("keydown", closeMenu);
       globalThis.removeEventListener("pointerdown", closeMenu);
     };
-  }, [open]);
+  }, [menu]);
+
+  // A project switch invalidates the cached branch list.
+  useEffect(() => {
+    setBranches(null);
+  }, [repository.path]);
+
+  // Load branches lazily the first time the branch menu opens.
+  useEffect(() => {
+    if (menu !== "branch" || branches) return undefined;
+    let active = true;
+    setBranchError("");
+    api("/api/branches")
+      .then((result) => active && setBranches(result.branches || []))
+      .catch((requestError) => active && setBranchError(requestError.message));
+    return () => {
+      active = false;
+    };
+  }, [menu, branches]);
 
   const chooseProject = async (project) => {
     if (project.path !== repository.path) await onSelectProject(project.path);
-    setOpen(false);
+    setMenu(null);
     setAdding(false);
     setMessage("");
+  };
+
+  const chooseBranch = (name) => {
+    onSelectBranch(name);
+    setMenu(null);
   };
 
   const addProject = async (event) => {
@@ -338,7 +600,7 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
       await onAdd(projectPath.trim());
       setProjectPath("");
       setAdding(false);
-      setOpen(false);
+      setMenu(null);
     } catch (requestError) {
       setMessage(requestError.message);
     } finally {
@@ -353,10 +615,10 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
         className="project-context-trigger"
         aria-label={`Current project: ${repository.name}`}
         aria-haspopup="menu"
-        aria-expanded={open}
+        aria-expanded={menu === "project"}
         disabled={disabled}
         onClick={() => {
-          setOpen((value) => !value);
+          setMenu((value) => (value === "project" ? null : "project"));
           setAdding(false);
           setMessage("");
         }}
@@ -365,18 +627,27 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
         <span>{repository.name}</span>
         <CaretDown />
       </button>
+      <span className="project-context-divider" aria-hidden="true" />
       <span className="project-context-meta" title="Execution environment">
         <Laptop />
         <span>Local</span>
       </span>
-      <span
-        className="project-context-meta branch"
-        title={repository.branch || "Branch unavailable"}
+      <span className="project-context-divider" aria-hidden="true" />
+      <button
+        type="button"
+        className="project-context-trigger branch"
+        aria-label={`Base branch: ${branch}`}
+        aria-haspopup="menu"
+        aria-expanded={menu === "branch"}
+        disabled={disabled}
+        title={`Agents branch new work from ${branch}`}
+        onClick={() => setMenu((value) => (value === "branch" ? null : "branch"))}
       >
         <GitBranch />
-        <span>{repository.branch || "Branch unavailable"}</span>
-      </span>
-      {open && (
+        <span>{branch}</span>
+        <CaretDown />
+      </button>
+      {menu === "project" && (
         <div className="project-context-menu">
           <div className="project-context-menu-heading">Projects</div>
           <div className="project-context-options" role="menu" aria-label="Select project">
@@ -432,6 +703,44 @@ function ProjectContextBar({ repository, projects, disabled, onSelectProject, on
           </div>
         </div>
       )}
+      {menu === "branch" && (
+        <div className="project-context-menu branch-menu">
+          <div className="project-context-menu-heading">Base branch</div>
+          <p className="project-context-menu-note">
+            Agents create their isolated worktrees from this branch.
+          </p>
+          <div className="project-context-options" role="menu" aria-label="Select base branch">
+            {branchError ? (
+              <p className="project-context-empty" role="alert">
+                {branchError}
+              </p>
+            ) : !branches ? (
+              <p className="project-context-empty">Loading branches…</p>
+            ) : branches.length ? (
+              branches.map((name) => {
+                const current = name === branch;
+                return (
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={current}
+                    key={name}
+                    onClick={() => chooseBranch(name)}
+                  >
+                    <GitBranch weight={current ? "fill" : "regular"} />
+                    <span>
+                      <strong>{name}</strong>
+                    </span>
+                    {current && <CheckCircle weight="fill" />}
+                  </button>
+                );
+              })
+            ) : (
+              <p className="project-context-empty">No branches found.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -473,10 +782,75 @@ function PlanningIndicator({ strategist }) {
   );
 }
 
+function workerStepLabel(status) {
+  if (status === "preparing") return "Preparing an isolated workspace…";
+  if (status === "running") return "Working through the task…";
+  return "Queued";
+}
+
+function capitalize(value) {
+  return value ? value[0].toUpperCase() + value.slice(1) : "Worker";
+}
+
+function WorkerMessage({ task, updatedAt }) {
+  const active = ["preparing", "running"].includes(task.status);
+  const done = ["succeeded", "failed", "interrupted", "skipped"].includes(task.status);
+  const color = AGENT_COLORS[task.agent] || "#57626f";
+  const fileCount = task.changedFiles?.length || 0;
+  return (
+    <article className={`message worker-message state-${task.status || "queued"}`}>
+      <span className="avatar worker-avatar" style={{ background: color }}>
+        {capitalize(task.agent)[0]}
+      </span>
+      <div>
+        <div className="message-meta">
+          <strong>{capitalize(task.agent)}</strong>
+          <small className="worker-task-id">
+            {task.mode ? `${task.id} · ${task.mode}` : task.id}
+          </small>
+          {done && <time>{clock(updatedAt)}</time>}
+        </div>
+        {done ? (
+          <>
+            <p className={`run-state state-${task.status}`}>
+              {task.status === "succeeded" ? (
+                <CheckCircle weight="fill" />
+              ) : task.status === "interrupted" ? (
+                <StopCircle weight="fill" />
+              ) : task.status === "skipped" ? (
+                <Info />
+              ) : (
+                <WarningCircle weight="fill" />
+              )}{" "}
+              {statusLabel(task.status)}
+              {fileCount > 0 && ` · ${fileCount} file${fileCount === 1 ? "" : "s"} changed`}
+            </p>
+            {task.report ? (
+              <div className="worker-report">{task.report}</div>
+            ) : task.error ? (
+              <p className="worker-error">{task.error}</p>
+            ) : (
+              <p className="muted-copy">No conclusion was returned.</p>
+            )}
+          </>
+        ) : (
+          <p className="worker-step">
+            <span
+              className={`worker-step-dot ${active ? "activity-pulse" : ""}`}
+              style={{ background: color }}
+            />
+            {workerStepLabel(task.status)}
+          </p>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function SessionChat({ session, liveEvents }) {
   if (!session) return <EmptyChat />;
   const plan = session.plan;
-  const participants = [...new Set((plan?.tasks || []).map((task) => task.agent))];
+  const { tasks } = sessionTaskState(session, liveEvents);
   return (
     <div className="conversation">
       <article className="message user-message">
@@ -519,34 +893,12 @@ function SessionChat({ session, liveEvents }) {
           )}
         </div>
       </article>
-      {(participants.length > 0 || liveEvents.length > 0) && (
-        <article className="execution-message">
-          <div className="agent-pair">
-            {participants.slice(0, 3).map((name) => (
-              <span key={name} style={{ background: AGENT_COLORS[name] }} />
-            ))}
-          </div>
-          <div>
-            <p>
-              <time>{clock(session.updatedAt)}</time>{" "}
-              {participants.length
-                ? `${participants.map((name) => name[0].toUpperCase() + name.slice(1)).join(" and ")} ${session.status === "running" ? "are running in parallel." : "were assigned to this session."}`
-                : session.status === "planning"
-                  ? "Planning in progress."
-                  : session.status === "interrupted"
-                    ? "Session stopped before planning completed."
-                    : "Session updated."}
-            </p>
-            <p className={`run-state state-${session.status}`}>
-              {session.status === "interrupted" ? (
-                <StopCircle weight="fill" />
-              ) : (
-                <CheckCircle weight="fill" />
-              )}{" "}
-              {statusLabel(session.status)}
-            </p>
-          </div>
-        </article>
+      {tasks.length > 0 && (
+        <div className="worker-stream" aria-label="Worker activity">
+          {tasks.map((task) => (
+            <WorkerMessage key={task.id} task={task} updatedAt={session.updatedAt} />
+          ))}
+        </div>
       )}
       {session.error && (
         <div className="error-banner">
@@ -569,18 +921,46 @@ function SettingsView({ data, onSaved }) {
   }));
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const saveQueue = useRef(Promise.resolve());
+  const latestSave = useRef(0);
+  const statusTimer = useRef(null);
   const notificationSupported = "Notification" in globalThis;
   const notificationPermission = notificationSupported
     ? globalThis.Notification.permission
     : "unsupported";
   const desktopNotificationsActive = notifications.enabled && notificationPermission === "granted";
-  const dirty =
-    mode !== data.executionMode ||
-    strategist !== data.strategist ||
-    JSON.stringify(notifications) !== JSON.stringify(data.notifications);
+  const persistSettings = (payload) => {
+    const saveId = latestSave.current + 1;
+    latestSave.current = saveId;
+    if (statusTimer.current) clearTimeout(statusTimer.current);
+    setSaving(true);
+    setMessage("Saving…");
+    const request = saveQueue.current.then(() =>
+      api("/api/settings", { method: "PUT", body: JSON.stringify(payload) }),
+    );
+    saveQueue.current = request.catch(() => {});
+    request
+      .then((result) => {
+        onSaved((current) => ({ ...current, ...result }));
+        if (saveId !== latestSave.current) return;
+        setSaving(false);
+        setMessage("Saved");
+        statusTimer.current = setTimeout(() => setMessage(""), 1600);
+      })
+      .catch((requestError) => {
+        if (saveId !== latestSave.current) return;
+        setSaving(false);
+        setMessage(requestError.message);
+      });
+  };
+  const updateNotifications = (patch) => {
+    const nextNotifications = { ...notifications, ...patch };
+    setNotifications(nextNotifications);
+    persistSettings({ executionMode: mode, strategist, notifications: nextNotifications });
+  };
   const toggleNotifications = async (enabled) => {
     if (!enabled) {
-      setNotifications((current) => ({ ...current, enabled: false }));
+      updateNotifications({ enabled: false });
       return;
     }
     if (!notificationSupported) {
@@ -596,26 +976,7 @@ function SettingsView({ data, onSaved }) {
       return;
     }
     setMessage("");
-    setNotifications((current) => ({ ...current, enabled: true }));
-  };
-  const save = async (event) => {
-    event.preventDefault();
-    const payload = {
-      executionMode: mode,
-      strategist,
-      notifications,
-    };
-    setSaving(true);
-    setMessage("Saving…");
-    try {
-      const result = await api("/api/settings", { method: "PUT", body: JSON.stringify(payload) });
-      onSaved({ ...data, ...result });
-      setMessage("Settings saved");
-    } catch (requestError) {
-      setMessage(requestError.message);
-    } finally {
-      setSaving(false);
-    }
+    updateNotifications({ enabled: true });
   };
   return (
     <section className="center-page settings-page">
@@ -624,7 +985,7 @@ function SettingsView({ data, onSaved }) {
         <h1>Orchestration</h1>
         <p>Choose how Strategos plans work and which local CLI leads planning.</p>
       </header>
-      <form onSubmit={save}>
+      <form onSubmit={(event) => event.preventDefault()}>
         <div className="settings-row">
           <label>
             Default mode<small>Auto previews and starts workers immediately.</small>
@@ -632,7 +993,11 @@ function SettingsView({ data, onSaved }) {
           <select
             aria-label="Default mode"
             value={mode}
-            onChange={(event) => setMode(event.target.value)}
+            onChange={(event) => {
+              const nextMode = event.target.value;
+              setMode(nextMode);
+              persistSettings({ executionMode: nextMode, strategist, notifications });
+            }}
           >
             <option value="auto">Auto</option>
             <option value="manual">Manual</option>
@@ -645,7 +1010,11 @@ function SettingsView({ data, onSaved }) {
           <select
             aria-label="Strategist"
             value={strategist}
-            onChange={(event) => setStrategist(event.target.value)}
+            onChange={(event) => {
+              const nextStrategist = event.target.value;
+              setStrategist(nextStrategist);
+              persistSettings({ executionMode: mode, strategist: nextStrategist, notifications });
+            }}
           >
             {data.agents.map((agent) => (
               <option key={agent}>{agent}</option>
@@ -687,12 +1056,7 @@ function SettingsView({ data, onSaved }) {
               aria-label="Successful task notifications"
               checked={notifications.onSuccess}
               disabled={!desktopNotificationsActive}
-              onChange={(event) =>
-                setNotifications((current) => ({
-                  ...current,
-                  onSuccess: event.target.checked,
-                }))
-              }
+              onChange={(event) => updateNotifications({ onSuccess: event.target.checked })}
             />
             <span aria-hidden="true" />
             <em>{notifications.onSuccess ? "On" : "Off"}</em>
@@ -709,41 +1073,165 @@ function SettingsView({ data, onSaved }) {
               aria-label="Failed or interrupted task notifications"
               checked={notifications.onFailure}
               disabled={!desktopNotificationsActive}
-              onChange={(event) =>
-                setNotifications((current) => ({
-                  ...current,
-                  onFailure: event.target.checked,
-                }))
-              }
+              onChange={(event) => updateNotifications({ onFailure: event.target.checked })}
             />
             <span aria-hidden="true" />
             <em>{notifications.onFailure ? "On" : "Off"}</em>
           </label>
         </div>
-        <div className="settings-actions">
-          <button type="submit" disabled={saving || !dirty}>
-            {saving ? "Saving…" : "Save settings"}
-          </button>
-          <span role="status" aria-live="polite">
+        {message && (
+          <p
+            className={`settings-status${saving || message === "Saved" ? "" : " is-error"}`}
+            role="status"
+            aria-live="polite"
+          >
             {message}
-          </span>
-        </div>
+          </p>
+        )}
       </form>
     </section>
   );
 }
 
-function Inspector({ session, liveEvents, isActive, stopping, onRun, onResume, onStop, onClose }) {
+function DiffViewer({ session, change, onClose }) {
+  const [viewType, setViewType] = useState("unified");
+  const [payload, setPayload] = useState(null);
+  const [requestError, setRequestError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setPayload(null);
+    setRequestError("");
+    setLoading(true);
+    api(`/api/sessions/${session.id}/diff?task=${encodeURIComponent(change.taskId)}`, {
+      projectPath: session.repository,
+      signal: controller.signal,
+    })
+      .then(setPayload)
+      .catch((error) => {
+        if (error.name !== "AbortError") setRequestError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [change.taskId, session.id, session.repository]);
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    globalThis.addEventListener("keydown", closeOnEscape);
+    return () => globalThis.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const parsed = useMemo(() => {
+    if (!payload?.patch) return { file: null, error: "" };
+    try {
+      const files = parseDiff(payload.patch);
+      const file = findDiffFile(files, change.path) || null;
+      return {
+        file,
+        error: !file && files.length ? "This file is not present in the saved patch." : "",
+      };
+    } catch {
+      return { file: null, error: "The saved patch could not be parsed." };
+    }
+  }, [change.path, payload?.patch]);
+
+  return (
+    <section className="diff-workspace" role="dialog" aria-modal="true" aria-label="File diff">
+      <header className="diff-toolbar">
+        <div>
+          <span>Files changed</span>
+          <strong>{change.path}</strong>
+          <small>
+            {change.taskId}
+            {change.agent ? ` · ${change.agent}` : ""}
+          </small>
+        </div>
+        <div className="diff-toolbar-actions">
+          <div className="diff-view-toggle" aria-label="Diff layout">
+            <button
+              type="button"
+              aria-pressed={viewType === "unified"}
+              onClick={() => setViewType("unified")}
+            >
+              Unified
+            </button>
+            <button
+              type="button"
+              aria-pressed={viewType === "split"}
+              onClick={() => setViewType("split")}
+            >
+              Split
+            </button>
+          </div>
+          <button type="button" className="diff-close" aria-label="Close diff" onClick={onClose}>
+            <X />
+          </button>
+        </div>
+      </header>
+      <div className="diff-content">
+        {payload?.truncated && (
+          <div className="diff-warning" role="status">
+            <WarningCircle /> This large patch was truncated at a complete file boundary.
+          </div>
+        )}
+        {loading && <p className="diff-state">Loading saved diff…</p>}
+        {requestError && (
+          <p className="diff-state is-error" role="alert">
+            {requestError}
+          </p>
+        )}
+        {!loading && !requestError && parsed.error && (
+          <p className="diff-state is-error" role="alert">
+            {parsed.error}
+          </p>
+        )}
+        {!loading && !requestError && !parsed.file && !parsed.error && (
+          <p className="diff-state">
+            {payload?.truncated
+              ? "This file exceeded the safe preview limit. Its path is still recorded."
+              : "No textual diff is available for this file."}
+          </p>
+        )}
+        {parsed.file?.isBinary && (
+          <p className="diff-state">Binary file changed. Inline text preview is unavailable.</p>
+        )}
+        {parsed.file && !parsed.file.isBinary && parsed.file.hunks.length > 0 && (
+          <div className="diff-renderer">
+            <Diff viewType={viewType} diffType={parsed.file.type} hunks={parsed.file.hunks}>
+              {(hunks) =>
+                hunks.map((hunk) => <Hunk key={`${hunk.oldStart}-${hunk.newStart}`} hunk={hunk} />)
+              }
+            </Diff>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Inspector({
+  session,
+  liveEvents,
+  isActive,
+  stopping,
+  onRun,
+  onResume,
+  onStop,
+  onOpenDiff,
+  onClose,
+}) {
   const [logsOpen, setLogsOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
   useEffect(() => setConfirmStop(false), [session?.id]);
   const events = mergeSessionEvents(session?.events, liveEvents).slice(-5);
-  const {
-    activities,
-    changedFiles: files,
-    detached,
-  } = sessionActivityState(session, liveEvents, isActive);
+  const { activities, detached } = sessionActivityState(session, liveEvents, isActive);
+  const files = sessionFileChanges(session, liveEvents);
   if (!session)
     return (
       <aside className="inspector inspector-empty" aria-label="Session details">
@@ -806,11 +1294,7 @@ function Inspector({ session, liveEvents, isActive, stopping, onRun, onResume, o
           <dt>Title</dt>
           <dd>{session.goal}</dd>
           <dt>Started</dt>
-          <dd>
-            {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
-              new Date(session.createdAt),
-            )}
-          </dd>
+          <dd>{sessionStartedDate(session.createdAt)}</dd>
           <dt>Repository</dt>
           <dd>{shortPath(session.repository)}</dd>
           <dt>Session ID</dt>
@@ -893,7 +1377,26 @@ function Inspector({ session, liveEvents, isActive, stopping, onRun, onResume, o
         {filesOpen && (
           <div className="file-list">
             {files.length ? (
-              files.map((file) => <code key={file}>{file}</code>)
+              files.map((file) => (
+                <button
+                  type="button"
+                  className="file-change"
+                  key={`${file.taskId}-${file.path}`}
+                  disabled={!file.available}
+                  title={file.available ? `Open ${file.path} diff` : "Saved diff unavailable"}
+                  onClick={() => onOpenDiff(file)}
+                >
+                  <FileCode />
+                  <span>
+                    <code>{file.path}</code>
+                    <small>
+                      {file.taskId}
+                      {file.available ? "" : " · Diff unavailable"}
+                    </small>
+                  </span>
+                  <CaretRight />
+                </button>
+              ))
             ) : (
               <p className="quiet">No saved file changes.</p>
             )}
@@ -911,6 +1414,7 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState("auto");
   const [attachments, setAttachments] = useState([]);
+  const [selectedBranch, setSelectedBranch] = useState(null);
   const [liveEvents, setLiveEvents] = useState([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -919,17 +1423,22 @@ export function App() {
   const [expandedProjects, setExpandedProjects] = useState(() => new Set());
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [diffSelection, setDiffSelection] = useState(null);
+  const [sessionManagerOpen, setSessionManagerOpen] = useState(false);
   const fileInput = useRef(null);
   const composerInput = useRef(null);
   const composerIsComposing = useRef(false);
+  const attachmentSeq = useRef(0);
   const modeControl = useRef(null);
   const bootstrapped = useRef(false);
   const notifiedSessions = useRef(new Set());
-  const projectSwitch = useRef("");
+  const projectSwitch = useRef(null);
   const selected = useMemo(
     () => data?.sessions.find((session) => session.id === selectedId) || null,
     [data, selectedId],
   );
+
+  useEffect(() => setDiffSelection(null), [data?.repository.path, selectedId, view]);
 
   useEffect(() => {
     if (!data?.repository.path) return;
@@ -937,6 +1446,11 @@ export function App() {
       if (current.size) return current;
       return new Set([data.repository.path]);
     });
+  }, [data?.repository.path]);
+
+  // The base-branch selection is per project; clear it when the project changes.
+  useEffect(() => {
+    setSelectedBranch(null);
   }, [data?.repository.path]);
 
   const refresh = async (projectPath = savedProjectPath(), resetMode = false) => {
@@ -1070,6 +1584,8 @@ export function App() {
     setAttachments([]);
     setView("chat");
     globalThis.localStorage?.setItem(PROJECT_STORAGE_KEY, projectPath);
+    // Switch instantly using the already-loaded project group so the click
+    // never waits on the bootstrap round-trip (and its CLI health checks).
     if (cached && !cached.unavailable) {
       const { sessions: cachedSessions, activeSessionIds: cachedActive, ...project } = cached;
       setData((current) => ({
@@ -1082,6 +1598,8 @@ export function App() {
     } else {
       setSelectedId(null);
     }
+    // Reconcile with the server in the background, ignoring the response when a
+    // newer switch has already superseded this one.
     try {
       const next = await api("/api/bootstrap", { projectPath });
       if (projectSwitch.current !== projectPath) return;
@@ -1162,6 +1680,34 @@ export function App() {
       throw requestError;
     }
   };
+  const applyManagedChanges = ({ action, results }) => {
+    setData((current) => {
+      const nextGroups = sidebarGroupsFor(current).map((group) => {
+        const result = results.find((item) => item.projectPath === group.path)?.response;
+        if (!result) return group;
+        const affected = new Set(result.sessionIds);
+        const remaining = group.sessions.filter((session) => !affected.has(session.id));
+        return {
+          ...group,
+          sessions: action === "restore" ? [...result.sessions, ...remaining] : remaining,
+        };
+      });
+      const currentGroup = nextGroups.find((group) => group.path === current.repository.path);
+      return {
+        ...current,
+        sessionGroups: nextGroups,
+        sessions: currentGroup?.sessions || [],
+      };
+    });
+    if (action !== "restore") {
+      const currentResult = results.find((item) => item.projectPath === data.repository.path);
+      if (selectedId && currentResult?.response.sessionIds.includes(selectedId)) {
+        setSelectedId(null);
+        setLiveEvents([]);
+        setDiffSelection(null);
+      }
+    }
+  };
   const newTask = () => {
     setSelectedId(null);
     setView("chat");
@@ -1194,7 +1740,12 @@ export function App() {
       }
       const session = await api("/api/goals", {
         method: "POST",
-        body: JSON.stringify({ goal, executionMode: mode, attachmentPaths }),
+        body: JSON.stringify({
+          goal,
+          executionMode: mode,
+          attachmentPaths,
+          baseRef: selectedBranch || undefined,
+        }),
       });
       setData((current) => ({
         ...current,
@@ -1219,6 +1770,34 @@ export function App() {
     } finally {
       setSubmitting(false);
     }
+  };
+  const addImageFiles = (files) => {
+    const images = [...files].filter((file) => file && file.type.startsWith("image/"));
+    if (!images.length) return;
+    const supported = images.filter((file) => IMAGE_MIME_TYPES.includes(file.type));
+    if (!supported.length) {
+      setError("Images must be PNG, JPEG, GIF, or WebP.");
+      return;
+    }
+    const named = supported.map((file) => {
+      if (file.name) return file;
+      attachmentSeq.current += 1;
+      const extension = file.type.slice("image/".length);
+      return new File([file], `pasted-image-${attachmentSeq.current}.${extension}`, {
+        type: file.type,
+      });
+    });
+    setError("");
+    setAttachments((current) => [...current, ...named]);
+  };
+  const pasteComposer = (event) => {
+    const items = [...(event.clipboardData?.items || [])];
+    const files = items
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile());
+    if (!files.length) return;
+    event.preventDefault();
+    addImageFiles(files);
   };
   const runSelected = async () => {
     if (!selected) return;
@@ -1294,7 +1873,9 @@ export function App() {
     return (
       <div className="loading-screen">
         <img src="/strategos-icon.png" alt="" />
-        <p>{error || "Starting Strategos…"}</p>
+        <p className={error ? "loading-error" : "loading-title"}>
+          {error || "Starting Strategos…"}
+        </p>
         {error && (
           <button onClick={() => refresh().catch((requestError) => setError(requestError.message))}>
             Retry
@@ -1309,8 +1890,8 @@ export function App() {
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
           <div>
-            <strong>{selected?.goal || data.repository.name}</strong>
-            <span title={data.repository.path}>{shortPath(data.repository.path)}</span>
+            <strong>Strategos</strong>
+            <span>One plan. Every agent aligned.</span>
           </div>
           <small>v{data.version}</small>
         </div>
@@ -1334,12 +1915,14 @@ export function App() {
             selectedId={selectedId}
             view={view}
             expandedProjects={expandedProjects}
-            disabled={switchingProject}
             onToggleProject={toggleProject}
             onSelectProject={selectProject}
             onSelectSession={selectGroupedSession}
             onTogglePin={togglePin}
-            onAdd={addProject}
+            onManage={() => {
+              setSessionManagerOpen(true);
+              setModeMenuOpen(false);
+            }}
           />
           <nav className="sidebar-footer-nav">
             <button
@@ -1380,7 +1963,9 @@ export function App() {
                   repository={data.repository}
                   projects={sidebarGroupsFor(data)}
                   disabled={switchingProject}
+                  selectedBranch={selectedBranch}
                   onSelectProject={selectProject}
+                  onSelectBranch={setSelectedBranch}
                   onAdd={addProject}
                 />
               )}
@@ -1394,7 +1979,7 @@ export function App() {
                 {attachments.length > 0 && (
                   <div className="attachment-list" aria-label="Attached images">
                     {attachments.map((file, index) => (
-                      <span key={`${file.name}-${file.lastModified}`}>
+                      <span key={`${file.name}-${file.lastModified}-${index}`}>
                         <Paperclip />
                         <span>{file.name}</span>
                         <button
@@ -1423,6 +2008,7 @@ export function App() {
                   onCompositionEnd={() => {
                     composerIsComposing.current = false;
                   }}
+                  onPaste={pasteComposer}
                   onKeyDown={(event) => {
                     if (
                       shouldSubmitComposerKey(
@@ -1451,9 +2037,12 @@ export function App() {
                       ref={fileInput}
                       hidden
                       type="file"
-                      accept="image/png,image/jpeg,image/gif,image/webp"
+                      accept={IMAGE_MIME_TYPES.join(",")}
                       multiple
-                      onChange={(event) => setAttachments([...event.target.files])}
+                      onChange={(event) => {
+                        addImageFiles(event.target.files);
+                        event.target.value = "";
+                      }}
                     />
                     <div ref={modeControl} className="mode-control">
                       <button
@@ -1517,9 +2106,9 @@ export function App() {
                   </button>
                 </div>
                 <div className="composer-hint">
-                  <span>{shortPath(data.repository.path)}</span>
                   <span>
-                    <kbd>Enter</kbd> send · <kbd>Shift Enter</kbd> new line · <kbd>⌘ K</kbd> focus
+                    <kbd>Enter</kbd> send · <kbd>Shift Enter</kbd> new line · <kbd>⌘ V</kbd> paste
+                    image
                   </span>
                 </div>
               </form>
@@ -1540,10 +2129,25 @@ export function App() {
             onRun={runSelected}
             onResume={resumeSelected}
             onStop={stopSelected}
+            onOpenDiff={setDiffSelection}
             onClose={() => setInspectorOpen(false)}
           />
         )}
+        {selected && diffSelection && (
+          <DiffViewer
+            session={selected}
+            change={diffSelection}
+            onClose={() => setDiffSelection(null)}
+          />
+        )}
       </div>
+      {sessionManagerOpen && (
+        <SessionManager
+          groups={sidebarGroupsFor(data)}
+          onClose={() => setSessionManagerOpen(false)}
+          onChanged={applyManagedChanges}
+        />
+      )}
     </div>
   );
 }

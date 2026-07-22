@@ -154,15 +154,13 @@ test("ordinary console input proposes a plan and previews its waves", async () =
   assert.match(output, /Max parallel: 3/);
 });
 
-test("console starts one local Web UI server and closes it on exit", async () => {
+test("console starts one background Web UI daemon and leaves it running on exit", async () => {
   const captured = captureOutput();
   let starts = 0;
-  let closeAllConnectionsCalls = 0;
-  let closeCalls = 0;
 
   await startConsole(
     consoleOptions("/web\n/web\n/exit\n", captured.output, {
-      startWebServerFn: async (options) => {
+      startWebDaemonFn: async (options) => {
         starts += 1;
         assert.deepEqual(options, {
           root: "/tmp/example-repository",
@@ -172,25 +170,53 @@ test("console starts one local Web UI server and closes it on exit", async () =>
         });
         return {
           url: "http://127.0.0.1:4310",
-          server: {
-            closeAllConnections() {
-              closeAllConnectionsCalls += 1;
-            },
-            close(callback) {
-              closeCalls += 1;
-              callback();
-            },
-          },
         };
       },
     }),
   );
 
   assert.equal(starts, 1);
-  assert.equal(closeAllConnectionsCalls, 1);
-  assert.equal(closeCalls, 1);
-  assert.match(captured.read(), /Web UI running  http:\/\/127\.0\.0\.1:4310/);
+  assert.match(captured.read(), /Web UI running in background  http:\/\/127\.0\.0\.1:4310/);
   assert.match(captured.read(), /Already running at http:\/\/127\.0\.0\.1:4310/);
+});
+
+test("console stops the background Web UI only on an explicit command", async () => {
+  const captured = captureOutput();
+  let stops = 0;
+
+  await startConsole(
+    consoleOptions("/web stop\n/exit\n", captured.output, {
+      stopWebDaemonFn: async (options) => {
+        stops += 1;
+        assert.deepEqual(options, { root: "/tmp/example-repository" });
+        return { alreadyStopped: false };
+      },
+    }),
+  );
+
+  assert.equal(stops, 1);
+  assert.match(captured.read(), /Web UI stopped/);
+});
+
+test("console restarts the background Web UI on an explicit command", async () => {
+  const captured = captureOutput();
+  let restarts = 0;
+
+  await startConsole(
+    consoleOptions("/web restart\n/exit\n", captured.output, {
+      restartWebDaemonFn: async (options) => {
+        restarts += 1;
+        assert.deepEqual(options, {
+          root: "/tmp/example-repository",
+          version: "0.9.0-test",
+        });
+        return { url: "http://127.0.0.1:4310", restarted: true };
+      },
+    }),
+  );
+
+  assert.equal(restarts, 1);
+  assert.match(captured.read(), /Web UI restarted  http:\/\/127\.0\.0\.1:4310/);
 });
 
 test("attaches image context to planning, plans, and durable sessions", async () => {

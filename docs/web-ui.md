@@ -17,10 +17,46 @@ Then open `http://127.0.0.1:4310`. The command accepts `--host HOST` and
 `--port PORT`. Keep the default localhost binding unless another device
 intentionally needs access to the process.
 
+`strategos web` starts a detached background process and returns after the
+server is ready. Closing the terminal does not stop it. Stop the service from
+the same repository with:
+
+```bash
+strategos web stop
+```
+
+Restart it while preserving the recorded host and port with:
+
+```bash
+strategos web restart
+```
+
+Pass `--host` or `--port` to the restart command only when the listener should
+change.
+
+Starting it again is idempotent and reports the existing URL. Runtime state is
+stored in `.strategos/web.json` with owner-only permissions; daemon output is
+appended to `.strategos/web.log`. The stop command authenticates to the exact
+recorded process before requesting shutdown, and stale state is removed when
+the recorded process no longer exists.
+
 The production assets are built into `web/dist` and served by the Strategos
 process. Configuration remains in `.strategos/config.json`; durable sessions
 remain under the repository's Git metadata; run manifests remain in
 `.strategos/runs/`.
+
+Each completed task with file changes also stores `changes.diff` beside its
+report. The inspector's **Files changed** list loads this patch only after a
+file is selected, then renders the selected file in a read-only code view.
+Unified view is the default and Split view is available from the diff toolbar.
+Historical runs created before diff persistence show the filename with a clear
+"Diff unavailable" state.
+
+Diff access is deliberately narrow: the API resolves artifacts from the
+selected project, Session run ID, and validated task ID rather than accepting a
+filesystem path. Stored and served patches are limited to 2 MiB. Binary files
+are reported without attempting a text preview, and oversized patches are
+truncated at a complete file boundary.
 
 The packaged UI contains no seeded demo sessions. Repository
 identity, CLI health, orchestration settings, session history, plans, task events,
@@ -31,19 +67,28 @@ Settings can enable project-level desktop notifications for successful tasks
 and for failed or interrupted tasks. Enabling the master switch requests the
 browser's notification permission. Notifications are emitted by the open Web
 UI when an active Session reaches a terminal state; they are not a background
-daemon and are not delivered after every Strategos tab is closed.
+daemon and are not delivered after every Strategos tab is closed. Settings
+persist each control change immediately without a manual save action.
 
 ## Project context
 
 The repository used to start `strategos web` is the initial project. Use the
-Projects section in the left sidebar to add or switch local paths. Projects and
-Sessions are sibling navigation sections, matching the task-oriented hierarchy
-of modern coding-agent clients. The header shows compact active-project context;
-project switching remains in the left navigation. Saved work opens directly
+Sessions section in the left sidebar or the context bar above the New task
+composer to switch among registered local paths. The context bar shows the
+selected repository, local execution environment, and task base branch, and
+also provides the local-project registration flow. The branch control lists
+local branches and selects the base used to create new isolated worker worktrees.
+Saved work opens directly
 from the project-grouped Sessions list rather than a separate Runs page.
 Strategos resolves each path to its Git root, rejects paths
 outside an accessible Git repository, and stores the local project list in
 `~/.strategos/projects.json`.
+
+The gear beside the Sessions heading opens a cross-project batch manager. It
+can archive, restore, or delete multiple Session journals. Archive is reversible
+and hides the Session from the regular sidebar. Delete requires confirmation
+and does not remove saved run artifacts. Active Sessions are excluded from
+these operations.
 
 Every Web request carries the selected project path. Configuration, durable
 sessions, attachments, repository context collection, strategist planning,
@@ -79,8 +124,10 @@ npm run web:api
 npm run web:dev
 ```
 
-The Vite+ development server proxies `/api` to `127.0.0.1:4311`. Before a
-commit, run the complete verification flow:
+The API command returns after starting the background service. The Vite+
+development server proxies `/api` to `127.0.0.1:4311`; run
+`strategos web stop` when development is finished. Before a commit, run the
+complete verification flow:
 
 ```bash
 npm run verify
@@ -111,6 +158,8 @@ information.
 3. Auto mode displays the plan and starts eligible workers. Manual mode waits
    for the Run action.
 4. The right inspector streams task events and shows the saved run manifest.
+   Select a file under **Files changed** to review its saved patch in Unified or
+   Split layout.
 5. While planning or workers are active, use **Stop session** in the inspector
    to terminate the session's local CLI process group. The session is saved as
    interrupted; generated worktrees and evidence remain on disk.

@@ -5,4 +5,5 @@ web/.npm-cache/
 .DS_Store
 .strategos/runs/
 .strategos/memory.local.md
+.strategos/web.json
 *.log

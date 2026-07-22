@@ -129,7 +129,9 @@ function consoleHelp(ui = createTerminalUi()) {
   /status [id]    Show a run manifest
   /sessions       List recent durable sessions
   /resume [id]    Re-plan and continue the latest or selected session
-  /web [port]     Start the local Web UI for this repository
+  /web [port]     Start the local Web UI in the background
+  /web restart    Restart the background Web UI
+  /web stop       Stop this repository's background Web UI
   /agents         Recheck Git, Node.js, and agent CLIs
   /reload         Reload project configuration and CLI availability
   /context        Show shared context files
@@ -214,7 +216,9 @@ export async function startConsole(options) {
   const attachImageFn = options.attachImageFn || attachImage;
   const captureClipboardImageFn = options.captureClipboardImageFn || captureClipboardImage;
   const resolveAttachmentsFn = options.resolveAttachmentsFn || resolveAttachments;
-  const startWebServerFn = options.startWebServerFn;
+  const restartWebDaemonFn = options.restartWebDaemonFn;
+  const startWebDaemonFn = options.startWebDaemonFn;
+  const stopWebDaemonFn = options.stopWebDaemonFn;
   const sessionStore = options.sessionStore || createSessionStore(root);
   const selectResumeSessionFn = options.selectResumeSessionFn || selectResumeSession;
   const interactive = Boolean(input.isTTY && output.isTTY);
@@ -232,7 +236,6 @@ export async function startConsole(options) {
   let planningInterruptArmed = false;
   let planningInterruptTimer;
   let executionActive = false;
-  let webServer;
   let webUrl;
   let shouldExit = false;
   let currentExecutionMode = normalizeExecutionMode(config.executionMode);
@@ -691,22 +694,35 @@ export async function startConsole(options) {
       return;
     }
     if (name === "web") {
-      if (webServer) {
+      if (argument === "restart") {
+        if (!restartWebDaemonFn) throw new Error("Web UI restart is unavailable in this console");
+        const result = await restartWebDaemonFn({ root, version });
+        webUrl = result.url;
+        writeLine(output, `${ui.success("Web UI restarted")}  ${ui.accent(webUrl)}`);
+        return;
+      }
+      if (argument === "stop") {
+        if (!stopWebDaemonFn) throw new Error("Web UI stop is unavailable in this console");
+        const result = await stopWebDaemonFn({ root });
+        webUrl = undefined;
+        writeLine(output, result.alreadyStopped ? "Web UI is not running." : `${ui.success("Web UI stopped")}`);
+        return;
+      }
+      if (webUrl) {
         writeLine(output, `${ui.info("Web UI")}  Already running at ${ui.accent(webUrl)}`);
         return;
       }
-      if (!startWebServerFn) throw new Error("Web UI startup is unavailable in this console");
+      if (!startWebDaemonFn) throw new Error("Web UI startup is unavailable in this console");
       const port = argument ? parsePositiveInteger(argument, "/web port") : 4310;
-      const result = await startWebServerFn({
+      const result = await startWebDaemonFn({
         root,
         host: "127.0.0.1",
         port,
         version,
       });
-      webServer = result.server;
       webUrl = result.url;
-      writeLine(output, `${ui.success("Web UI running")}  ${ui.accent(webUrl)}`);
-      writeLine(output, ui.muted("Keep this Strategos console open while using the browser."));
+      writeLine(output, `${ui.success("Web UI running in background")}  ${ui.accent(webUrl)}`);
+      writeLine(output, ui.muted("Use /web stop or strategos web stop to stop it."));
       return;
     }
     if (name === "agents" || name === "doctor" || name === "reload") {
@@ -733,24 +749,15 @@ export async function startConsole(options) {
     throw new Error(`unknown console command: /${name}`);
   };
 
-  try {
-    for await (const rawLine of rl) {
-      const line = rawLine.trim();
-      try {
-        if (line.startsWith("/")) await handleCommand(line);
-        else if (line) await propose(line);
-      } catch (error) {
-        writeLine(output, `${ui.error("Error")}  ${error.message}`);
-      }
-      if (shouldExit) break;
-      promptUser();
+  for await (const rawLine of rl) {
+    const line = rawLine.trim();
+    try {
+      if (line.startsWith("/")) await handleCommand(line);
+      else if (line) await propose(line);
+    } catch (error) {
+      writeLine(output, `${ui.error("Error")}  ${error.message}`);
     }
-  } finally {
-    if (webServer) {
-      webServer.closeAllConnections?.();
-      await new Promise((resolve, reject) => {
-        webServer.close((error) => error ? reject(error) : resolve());
-      });
-    }
+    if (shouldExit) break;
+    promptUser();
   }
 }

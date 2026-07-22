@@ -16,7 +16,12 @@ import {
   upgradeStrategos,
 } from "./upgrade.js";
 import { parsePositiveInteger } from "./utils.js";
-import { startWebServer } from "./web-server.js";
+import {
+  restartWebDaemon,
+  runWebDaemon,
+  startWebDaemon,
+  stopWebDaemon,
+} from "./web-daemon.js";
 
 const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
 const VERSION = JSON.parse(readFileSync(packagePath, "utf8")).version;
@@ -30,6 +35,8 @@ Usage:
   strategos doctor [--json]
   strategos reload [--json]
   strategos web [--host HOST] [--port PORT]
+  strategos web restart [--host HOST] [--port PORT]
+  strategos web stop
   strategos update [--dry-run]
   strategos upgrade [--dry-run]
   strategos uninstall [--dry-run]
@@ -95,7 +102,13 @@ export async function main(args) {
   const command = args[0];
   if (!command) {
     const root = await findRepoRoot(process.cwd());
-    await startConsole({ root, version: VERSION, startWebServerFn: startWebServer });
+    await startConsole({
+      root,
+      version: VERSION,
+      restartWebDaemonFn: restartWebDaemon,
+      startWebDaemonFn: startWebDaemon,
+      stopWebDaemonFn: stopWebDaemon,
+    });
     return;
   }
   if (command === "help" || hasFlag(args, "--help") || hasFlag(args, "-h")) {
@@ -137,12 +150,43 @@ export async function main(args) {
 
   if (command === "web") {
     const root = await findRepoRoot(process.cwd());
-    const host = optionValue(args, "--host") || "127.0.0.1";
+    const subcommand = args[1];
+    if (subcommand === "stop") {
+      const result = await stopWebDaemon({ root });
+      console.log(result.alreadyStopped ? "Strategos Web is not running." : "Strategos Web stopped.");
+      return;
+    }
+    const hostValue = optionValue(args, "--host");
     const portValue = optionValue(args, "--port");
+    if (subcommand === "restart") {
+      const result = await restartWebDaemon({
+        root,
+        host: hostValue,
+        port: portValue === undefined ? undefined : Number(portValue),
+        version: VERSION,
+      });
+      console.log(`Strategos Web ${result.restarted ? "restarted" : "was not running and started"} at ${result.url}`);
+      console.log(`Log: ${result.log}`);
+      return;
+    }
+    const host = hostValue || "127.0.0.1";
     const port = portValue === undefined ? 4310 : Number(portValue);
-    const result = await startWebServer({ root, host, port, version: VERSION });
-    console.log(`Strategos Web is running at ${result.url}`);
-    console.log("Press Ctrl+C to stop.");
+    if (subcommand === "__serve") {
+      await runWebDaemon({
+        root,
+        host,
+        port,
+        version: VERSION,
+        instanceId: process.env.STRATEGOS_WEB_INSTANCE_ID,
+        token: process.env.STRATEGOS_WEB_TOKEN,
+      });
+      return;
+    }
+    if (subcommand && !subcommand.startsWith("--")) throw new Error(`unknown web command: ${subcommand}`);
+    const result = await startWebDaemon({ root, host, port, version: VERSION });
+    console.log(`Strategos Web ${result.alreadyRunning ? "is already running" : "started in the background"} at ${result.url}`);
+    console.log(`Log: ${result.log}`);
+    console.log("Stop it with: strategos web stop");
     return;
   }
 

@@ -30,9 +30,8 @@ client. Evidence was captured from the production Web build at
 - The right inspector previously occupied space even without a selected
   Session. It now appears only when it has relevant Session context and can be
   collapsed or restored.
-- The project picker previously behaved like an inline form. It now presents a
-  focused local-project dialog pattern, closes with Escape or outside click,
-  and preserves the Projects/Sessions hierarchy.
+- Sessions remain grouped by registered project, with project switching kept in
+  the left navigation and no separate in-app project-add flow.
 - Attachments previously appeared only as a count. Every selected image now has
   a readable filename and a remove action before submission.
 - Settings previously looked actionable even when unchanged. Save is disabled

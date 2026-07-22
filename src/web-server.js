@@ -7,7 +7,8 @@ import { attachImage, resolveAttachments } from "./attachments.js";
 import { loadConfig, normalizeNotificationSettings, saveConfig } from "./config.js";
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
-import { currentBranch } from "./git.js";
+import { loadSessionTaskDiff } from "./diffs.js";
+import { currentBranch, listBranches } from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { createProjectRegistry } from "./projects.js";
@@ -60,6 +61,7 @@ function publicSession(session) {
     strategist: session.strategist,
     workerAgents: session.workerAgents || [],
     executionMode: session.executionMode,
+    baseRef: session.baseRef || null,
     attachments: (session.attachments || []).map(({ path: _path, ...attachment }) => attachment),
     status: session.status,
     attempts: session.attempts,
@@ -69,6 +71,7 @@ function publicSession(session) {
     events: session.events || [],
     error: session.error,
     pinned: Boolean(session.pinned),
+    archivedAt: session.archivedAt || null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     finishedAt: session.finishedAt,
@@ -131,11 +134,14 @@ export function createWebApplication(options) {
   const runDoctorFn = options.runDoctorFn || runDoctor;
   const planWithStrategistFn = options.planWithStrategistFn || planWithStrategist;
   const runPlanFn = options.runPlanFn || runPlan;
+  const loadSessionTaskDiffFn = options.loadSessionTaskDiffFn || loadSessionTaskDiff;
   const attachImageFn = options.attachImageFn || attachImage;
   const resolveAttachmentsFn = options.resolveAttachmentsFn || resolveAttachments;
   const createSessionStoreFn = options.createSessionStoreFn || createSessionStore;
   const currentBranchFn = options.currentBranchFn || currentBranch;
+  const listBranchesFn = options.listBranchesFn || listBranches;
   const projectRegistry = options.projectRegistry || createProjectRegistry({ initialRoot });
+  const webControl = options.webControl;
   const sessionStores = new Map();
   if (options.sessionStore) sessionStores.set(initialRoot, options.sessionStore);
   const subscribers = new Map();
@@ -151,6 +157,16 @@ export function createWebApplication(options) {
     return { project, root: project.path, sessionStore };
   };
   const contextKey = (context, sessionId) => `${context.root}\u0000${sessionId}`;
+
+  const resolveBaseRef = async (root, requested) => {
+    const value = typeof requested === "string" ? requested.trim() : "";
+    if (!value) return undefined;
+    const branches = await listBranchesFn(root);
+    if (!branches.includes(value)) {
+      throw Object.assign(new Error(`unknown branch: ${value}`), { status: 400 });
+    }
+    return value;
+  };
 
   const listSessionGroups = async () => {
     const projects = await projectRegistry.list();
@@ -234,8 +250,9 @@ export function createWebApplication(options) {
     }
   };
 
-  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", resumeSession, existingSession, signal }) => {
+  const planSession = async (context, { goal, attachmentPaths = [], executionMode = "auto", baseRef, resumeSession, existingSession, signal }) => {
     let config = await loadConfigFn(context.root);
+    if (baseRef) config = { ...config, baseRef };
     const checks = await runDoctorFn(config, context.root);
     const healthy = healthyAgentNames(checks, config);
     const agents = healthy;
@@ -361,6 +378,26 @@ export function createWebApplication(options) {
     const url = new URL(request.url, "http://localhost");
     const pathname = decodeURIComponent(url.pathname);
     try {
+      if (webControl && (pathname === "/api/web/status" || pathname === "/api/web/stop")) {
+        if (request.headers["x-strategos-web-token"] !== webControl.token) {
+          sendJson(response, 404, { error: "not found" });
+          return;
+        }
+        if (request.method === "GET" && pathname === "/api/web/status") {
+          sendJson(response, 200, {
+            instanceId: webControl.instanceId,
+            pid: webControl.pid,
+          });
+          return;
+        }
+        if (request.method === "POST" && pathname === "/api/web/stop") {
+          response.once("finish", webControl.stop);
+          sendJson(response, 202, { status: "stopping" });
+          return;
+        }
+        sendJson(response, 405, { error: "method not allowed" });
+        return;
+      }
       if (request.method === "POST" && pathname === "/api/projects") {
         const input = await readJsonBody(request);
         const project = await projectRegistry.add(input.path);
@@ -402,8 +439,73 @@ export function createWebApplication(options) {
         return;
       }
       if (request.method === "GET" && pathname === "/api/sessions") {
-        const sessions = await sessionStore.list({ limit: 100 });
+        const sessions = await sessionStore.list({
+          includeArchived: url.searchParams.get("includeArchived") === "true",
+          limit: 100,
+        });
         sendJson(response, 200, sessions.map(publicSession));
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/sessions/batch") {
+        const input = await readJsonBody(request);
+        const action = String(input.action || "");
+        if (!["archive", "restore", "delete"].includes(action)) {
+          throw Object.assign(new Error("action must be archive, restore, or delete"), {
+            status: 400,
+          });
+        }
+        if (!Array.isArray(input.sessionIds) || !input.sessionIds.length) {
+          throw Object.assign(new Error("sessionIds must be a non-empty array"), { status: 400 });
+        }
+        const sessionIds = [...new Set(input.sessionIds.map((id) => String(id)))];
+        if (sessionIds.length > 100 || sessionIds.some((id) => !/^[a-zA-Z0-9-]+$/.test(id))) {
+          throw Object.assign(new Error("sessionIds contains an invalid session id"), { status: 400 });
+        }
+        const sessions = [];
+        for (const id of sessionIds) {
+          const session = await sessionStore.load(id);
+          if (!session) {
+            throw Object.assign(new Error(`session not found: ${id}`), { status: 404 });
+          }
+          if (active.has(contextKey(context, id))) {
+            throw Object.assign(new Error(`active session cannot be managed: ${id}`), {
+              status: 409,
+            });
+          }
+          sessions.push(session);
+        }
+        if (action === "delete" && typeof sessionStore.remove !== "function") {
+          throw Object.assign(new Error("session deletion is unavailable"), { status: 501 });
+        }
+        const updated = [];
+        for (const session of sessions) {
+          if (action === "delete") {
+            await sessionStore.remove(session);
+            continue;
+          }
+          const archived = action === "archive";
+          const next =
+            typeof sessionStore.setArchived === "function"
+              ? await sessionStore.setArchived(session, archived)
+              : await sessionStore.update(session, {
+                  archivedAt: archived ? new Date().toISOString() : null,
+                });
+          updated.push(publicSession(next));
+        }
+        sendJson(response, 200, {
+          action,
+          sessionIds,
+          sessions: updated,
+        });
+        return;
+      }
+      const diffMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/diff$/);
+      if (request.method === "GET" && diffMatch) {
+        const taskId = url.searchParams.get("task");
+        if (!taskId) throw Object.assign(new Error("task query parameter is required"), { status: 400 });
+        const session = await sessionStore.load(diffMatch[1]);
+        if (!session) return sendJson(response, 404, { error: "session not found" });
+        sendJson(response, 200, await loadSessionTaskDiffFn(root, session, taskId));
         return;
       }
       const sessionMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)$/);
@@ -485,26 +587,40 @@ export function createWebApplication(options) {
         }
         return;
       }
+      if (request.method === "GET" && pathname === "/api/branches") {
+        const [current, branches] = await Promise.all([
+          currentBranchFn(root),
+          listBranchesFn(root),
+        ]);
+        sendJson(response, 200, {
+          current,
+          branches: branches.filter((branch) => !branch.startsWith("strategos/")),
+        });
+        return;
+      }
       if (request.method === "POST" && pathname === "/api/goals") {
         const input = await readJsonBody(request);
         const goal = String(input.goal || "").trim();
         if (!goal) throw Object.assign(new Error("goal cannot be empty"), { status: 400 });
         const executionMode = input.executionMode === "manual" ? "manual" : "auto";
         const config = await loadConfigFn(root);
+        const baseRef = await resolveBaseRef(root, input.baseRef);
         const checks = await runDoctorFn(config, root);
         const agents = healthyAgentNames(checks, config);
         const strategist = selectStrategist(config, agents);
-        const session = await sessionStore.create({
+        let session = await sessionStore.create({
           goal,
           strategist,
           workerAgents: selectWorkerAgents(agents, strategist, config.workerMode),
           executionMode,
           attachments: [],
         });
+        if (baseRef) session = await sessionStore.update(session, { baseRef });
         startBackground(context, session, (signal) => planSession(context, {
           goal,
           attachmentPaths: input.attachmentPaths || [],
           executionMode,
+          baseRef,
           existingSession: session,
           signal,
         }));
@@ -535,7 +651,10 @@ export function createWebApplication(options) {
         if (active.has(contextKey(context, session.id))) {
           throw Object.assign(new Error("session is already active"), { status: 409 });
         }
-        const config = await loadConfigFn(root);
+        const loadedConfig = await loadConfigFn(root);
+        const config = session.baseRef
+          ? { ...loadedConfig, baseRef: session.baseRef }
+          : loadedConfig;
         startBackground(context, session, (signal) => (
           runSession(context, session, config, session.plan, signal)
         ));
@@ -544,16 +663,21 @@ export function createWebApplication(options) {
       }
       const resumeMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/resume$/);
       if (request.method === "POST" && resumeMatch) {
-        const session = await sessionStore.load(resumeMatch[1]);
+        let session = await sessionStore.load(resumeMatch[1]);
         if (!session) return sendJson(response, 404, { error: "session not found" });
         if (active.has(contextKey(context, session.id))) {
           throw Object.assign(new Error("session is already active"), { status: 409 });
         }
         const input = await readJsonBody(request);
+        const resumeBaseRef = await resolveBaseRef(root, input.baseRef ?? session.baseRef);
+        if (resumeBaseRef && resumeBaseRef !== session.baseRef) {
+          session = await sessionStore.update(session, { baseRef: resumeBaseRef });
+        }
         startBackground(context, session, (signal) => planSession(context, {
           goal: String(input.goal || session.goal),
           attachmentPaths: input.attachmentPaths || session.attachments || [],
           executionMode: input.executionMode || session.executionMode || "auto",
+          baseRef: resumeBaseRef,
           resumeSession: session,
           signal,
         }));

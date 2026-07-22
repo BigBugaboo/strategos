@@ -51,6 +51,20 @@ test("stores durable sessions under Git metadata and restores checkpoints", asyn
   assert.equal(session.pinned, true);
   assert.equal(session.updatedAt, updatedAt);
   assert.equal((await store.load(session.id)).pinned, true);
+
+  session = await store.setArchived(session, true);
+  assert.equal(session.archivedAt !== null, true);
+  assert.equal(session.pinned, true);
+  assert.equal(session.updatedAt, updatedAt);
+  assert.equal((await store.list()).length, 0);
+  assert.equal((await store.list({ includeArchived: true })).length, 1);
+  assert.equal(await store.latestResumable(), undefined);
+
+  session = await store.setArchived(session, false);
+  assert.equal(session.archivedAt, null);
+  assert.equal((await store.list()).length, 1);
+  await store.remove(session);
+  assert.equal(await store.load(session.id), undefined);
 });
 
 test("completed sessions remain inspectable but are not offered for recovery", async () => {

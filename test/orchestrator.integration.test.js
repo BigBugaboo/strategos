@@ -78,6 +78,12 @@ test("runs independent custom workers in isolated worktrees and preserves report
   assert.equal(result.manifest.tasks.one.status, "succeeded");
   assert.equal(result.manifest.tasks.two.status, "succeeded");
   assert.ok(result.manifest.tasks.one.changedFiles.includes("one.txt"));
+  assert.deepEqual(result.manifest.tasks.one.diff, {
+    available: true,
+    bytes: result.manifest.tasks.one.diff.bytes,
+    truncated: false,
+  });
+  assert.ok(result.manifest.tasks.one.diff.bytes > 0);
   assert.notEqual(result.manifest.tasks.one.worktree, result.manifest.tasks.two.worktree);
   assert.equal(result.manifest.sessionMode, "single-cli-multi-session");
   assert.notEqual(result.manifest.tasks.one.sessionId, result.manifest.tasks.two.sessionId);
@@ -85,6 +91,10 @@ test("runs independent custom workers in isolated worktrees and preserves report
   assert.match(
     await fs.readFile(path.join(root, result.manifest.tasks.one.artifactDir, "report.md"), "utf8"),
     /completed one session 11111111-1111-4111-8111-111111111111 image design\.png/,
+  );
+  assert.match(
+    await fs.readFile(path.join(root, result.manifest.tasks.one.artifactDir, "changes.diff"), "utf8"),
+    /\+done/,
   );
   assert.equal(events[0].type, "run_started");
   assert.equal(events.at(-1).type, "run_finished");
