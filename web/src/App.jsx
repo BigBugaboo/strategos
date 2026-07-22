@@ -1407,6 +1407,19 @@ function Inspector({
   );
 }
 
+function LoadingScreen({ error, leaving = false, onRetry }) {
+  return (
+    <div
+      className={`loading-screen ${leaving ? "is-leaving" : ""}`}
+      aria-hidden={leaving || undefined}
+    >
+      <img src="/strategos-icon.png" alt="" />
+      <p className={error ? "loading-error" : "loading-title"}>{error || "Starting Strategos…"}</p>
+      {error && !leaving && <button onClick={onRetry}>Retry</button>}
+    </div>
+  );
+}
+
 export function App() {
   const [data, setData] = useState(null);
   const [view, setView] = useState("chat");
@@ -1415,6 +1428,7 @@ export function App() {
   const [mode, setMode] = useState("auto");
   const [attachments, setAttachments] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState(null);
+  const [loaderVisible, setLoaderVisible] = useState(true);
   const [liveEvents, setLiveEvents] = useState([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1452,6 +1466,13 @@ export function App() {
   useEffect(() => {
     setSelectedBranch(null);
   }, [data?.repository.path]);
+
+  // Once the first data arrives, let the loading overlay cross-fade out.
+  useEffect(() => {
+    if (!data) return undefined;
+    const timer = globalThis.setTimeout(() => setLoaderVisible(false), 520);
+    return () => globalThis.clearTimeout(timer);
+  }, [data]);
 
   const refresh = async (projectPath = savedProjectPath(), resetMode = false) => {
     const next = await api("/api/bootstrap", { projectPath });
@@ -1871,21 +1892,15 @@ export function App() {
 
   if (!data)
     return (
-      <div className="loading-screen">
-        <img src="/strategos-icon.png" alt="" />
-        <p className={error ? "loading-error" : "loading-title"}>
-          {error || "Starting Strategos…"}
-        </p>
-        {error && (
-          <button onClick={() => refresh().catch((requestError) => setError(requestError.message))}>
-            Retry
-          </button>
-        )}
-      </div>
+      <LoadingScreen
+        error={error}
+        onRetry={() => refresh().catch((requestError) => setError(requestError.message))}
+      />
     );
   const showInspector = inspectorOpen && selected && view === "chat";
   return (
     <div className={`app-shell ${showInspector ? "" : "inspector-closed"}`}>
+      {loaderVisible && <LoadingScreen leaving />}
       <header className="topbar">
         <div className="brand">
           <img src="/strategos-icon.png" alt="Strategos" />
