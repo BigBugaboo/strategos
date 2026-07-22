@@ -54,6 +54,7 @@ async function fixture(t, overrides = {}) {
     executionMode: "auto",
     strategist: "codex",
     workerMode: "hybrid",
+    notifications: { enabled: false, onSuccess: true, onFailure: true },
     agents: { claude: {}, codex: {}, copilot: {} },
   };
   const sessionStore = memorySessionStore(root);
@@ -84,6 +85,7 @@ async function fixture(t, overrides = {}) {
     port: 0,
     version: "test",
     loadConfigFn: async () => config,
+    saveConfigFn: async (_root, next) => Object.assign(config, next),
     runDoctorFn: async () => [
       { name: "git", ok: true, detail: "git" },
       { name: "node", ok: true, detail: "node" },
@@ -129,7 +131,34 @@ test("Web bootstrap exposes repository, sessions, and configured agents", async 
   assert.equal(body.sessionGroups.length, 2);
   assert.equal(body.sessionGroups[1].sessions[0].goal, "Work in the second project");
   assert.deepEqual(body.agents, ["claude", "codex", "copilot"]);
+  assert.deepEqual(body.notifications, { enabled: false, onSuccess: true, onFailure: true });
   assert.deepEqual(body.sessions, []);
+});
+
+test("Web settings persist normalized task notification preferences", async (t) => {
+  const { url } = await fixture(t);
+  const response = await fetch(`${url}/api/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      executionMode: "manual",
+      strategist: "claude",
+      notifications: { enabled: true, onSuccess: false },
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).notifications, {
+    enabled: true,
+    onSuccess: false,
+    onFailure: true,
+  });
+
+  const bootstrap = await fetch(`${url}/api/bootstrap`);
+  assert.deepEqual((await bootstrap.json()).notifications, {
+    enabled: true,
+    onSuccess: false,
+    onFailure: true,
+  });
 });
 
 test("Web sessions can be pinned without changing projects", async (t) => {

@@ -2,6 +2,21 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ensureDir, readJson, writeJson } from "./utils.js";
 
+const DEFAULT_NOTIFICATION_SETTINGS = Object.freeze({
+  enabled: false,
+  onSuccess: true,
+  onFailure: true,
+});
+
+export function normalizeNotificationSettings(value, fallback = DEFAULT_NOTIFICATION_SETTINGS) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    enabled: typeof source.enabled === "boolean" ? source.enabled : fallback.enabled,
+    onSuccess: typeof source.onSuccess === "boolean" ? source.onSuccess : fallback.onSuccess,
+    onFailure: typeof source.onFailure === "boolean" ? source.onFailure : fallback.onFailure,
+  };
+}
+
 export const DEFAULT_CONFIG = Object.freeze({
   maxParallel: 3,
   strategist: "codex",
@@ -13,6 +28,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   worktreeRoot: "../.strategos-worktrees",
   maxContextBytes: 64_000,
   taskTimeoutMinutes: 45,
+  notifications: DEFAULT_NOTIFICATION_SETTINGS,
   agents: {
     claude: { command: "claude", extraArgs: [] },
     codex: { command: "codex", extraArgs: [] },
@@ -33,6 +49,7 @@ export async function loadConfig(root) {
   return {
     ...DEFAULT_CONFIG,
     ...userConfig,
+    notifications: normalizeNotificationSettings(userConfig.notifications),
     agents: Object.fromEntries(Object.entries({ ...DEFAULT_CONFIG.agents, ...(userConfig.agents || {}) })
       .map(([name, value]) => [name, { ...DEFAULT_CONFIG.agents[name], ...value }])),
   };

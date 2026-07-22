@@ -27,6 +27,12 @@ identity, CLI health, orchestration settings, session history, plans, task event
 and changed files are loaded from the local Strategos API. A repository with no
 saved sessions opens in the empty New task state.
 
+Settings can enable project-level desktop notifications for successful tasks
+and for failed or interrupted tasks. Enabling the master switch requests the
+browser's notification permission. Notifications are emitted by the open Web
+UI when an active Session reaches a terminal state; they are not a background
+daemon and are not delivered after every Strategos tab is closed.
+
 ## Project context
 
 The repository used to start `strategos web` is the initial project. Use the

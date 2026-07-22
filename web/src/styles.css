@@ -1335,6 +1335,20 @@ kbd {
 .settings-page form {
   max-width: 760px;
 }
+.settings-group-heading {
+  padding: 34px 0 10px;
+}
+.settings-group-heading h2 {
+  margin: 0;
+  color: #d9dee5;
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-group-heading p {
+  margin: 7px 0 0;
+  color: var(--quiet);
+  font-size: 10px;
+}
 .settings-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 180px;
@@ -1344,6 +1358,10 @@ kbd {
   border-bottom: 1px solid var(--line-soft);
 }
 .settings-row label {
+  color: #cdd3db;
+  font-size: 12px;
+}
+.settings-copy {
   color: #cdd3db;
   font-size: 12px;
 }
@@ -1362,6 +1380,68 @@ kbd {
   color: #cbd2da;
   padding: 0 10px;
   font-size: 11px;
+}
+.toggle-control {
+  position: relative;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+.settings-page .toggle-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+}
+.toggle-control > span {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border: 1px solid #3a4654;
+  border-radius: 99px;
+  background: #111c28;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+.toggle-control > span::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #7e8996;
+  content: "";
+  transition:
+    transform 140ms ease,
+    background 140ms ease;
+}
+.toggle-control input:checked + span {
+  border-color: #7564cc;
+  background: #30275b;
+}
+.toggle-control input:checked + span::after {
+  background: #b7a7ff;
+  transform: translateX(14px);
+}
+.toggle-control input:focus-visible + span {
+  outline: 2px solid #7b70ff;
+  outline-offset: 2px;
+}
+.toggle-control:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.toggle-control em {
+  min-width: 18px;
+  color: #7e8996;
+  font-size: 10px;
+  font-style: normal;
 }
 .settings-actions {
   display: flex;

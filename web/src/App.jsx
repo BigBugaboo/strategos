@@ -21,8 +21,10 @@ import {
 import {
   historyDate,
   mergeSessionEvents,
+  notificationOutcome,
   sessionActivityState,
   shouldSubmitComposerKey,
+  shouldNotifyForEvent,
   sortSidebarSessions,
 } from "./model.js";
 
@@ -421,14 +423,49 @@ function SessionChat({ session, liveEvents }) {
 function SettingsView({ data, onSaved }) {
   const [mode, setMode] = useState(data.executionMode);
   const [strategist, setStrategist] = useState(data.strategist);
+  const [notifications, setNotifications] = useState(() => ({
+    enabled: false,
+    onSuccess: true,
+    onFailure: true,
+    ...data.notifications,
+  }));
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
-  const dirty = mode !== data.executionMode || strategist !== data.strategist;
+  const notificationSupported = "Notification" in globalThis;
+  const notificationPermission = notificationSupported
+    ? globalThis.Notification.permission
+    : "unsupported";
+  const desktopNotificationsActive = notifications.enabled && notificationPermission === "granted";
+  const dirty =
+    mode !== data.executionMode ||
+    strategist !== data.strategist ||
+    JSON.stringify(notifications) !== JSON.stringify(data.notifications);
+  const toggleNotifications = async (enabled) => {
+    if (!enabled) {
+      setNotifications((current) => ({ ...current, enabled: false }));
+      return;
+    }
+    if (!notificationSupported) {
+      setMessage("Desktop notifications are not supported by this browser.");
+      return;
+    }
+    const permission =
+      globalThis.Notification.permission === "default"
+        ? await globalThis.Notification.requestPermission()
+        : globalThis.Notification.permission;
+    if (permission !== "granted") {
+      setMessage("Notification permission was not granted.");
+      return;
+    }
+    setMessage("");
+    setNotifications((current) => ({ ...current, enabled: true }));
+  };
   const save = async (event) => {
     event.preventDefault();
     const payload = {
       executionMode: mode,
       strategist,
+      notifications,
     };
     setSaving(true);
     setMessage("Saving…");
@@ -476,6 +513,74 @@ function SettingsView({ data, onSaved }) {
               <option key={agent}>{agent}</option>
             ))}
           </select>
+        </div>
+        <div className="settings-group-heading">
+          <h2>Notifications</h2>
+          <p>Desktop notifications are delivered while this Web UI remains open.</p>
+        </div>
+        <div className="settings-row">
+          <span className="settings-copy">
+            Desktop notifications
+            <small>
+              {notificationPermission === "denied"
+                ? "Blocked by the browser. Update the site permission to enable notifications."
+                : "Ask the browser to notify you when a task reaches a terminal state."}
+            </small>
+          </span>
+          <label className="toggle-control">
+            <input
+              type="checkbox"
+              aria-label="Desktop notifications"
+              checked={desktopNotificationsActive}
+              disabled={!notificationSupported || notificationPermission === "denied"}
+              onChange={(event) => void toggleNotifications(event.target.checked)}
+            />
+            <span aria-hidden="true" />
+            <em>{desktopNotificationsActive ? "On" : "Off"}</em>
+          </label>
+        </div>
+        <div className="settings-row">
+          <span className="settings-copy">
+            Successful tasks<small>Notify after all workers finish successfully.</small>
+          </span>
+          <label className="toggle-control">
+            <input
+              type="checkbox"
+              aria-label="Successful task notifications"
+              checked={notifications.onSuccess}
+              disabled={!desktopNotificationsActive}
+              onChange={(event) =>
+                setNotifications((current) => ({
+                  ...current,
+                  onSuccess: event.target.checked,
+                }))
+              }
+            />
+            <span aria-hidden="true" />
+            <em>{notifications.onSuccess ? "On" : "Off"}</em>
+          </label>
+        </div>
+        <div className="settings-row">
+          <span className="settings-copy">
+            Failed or interrupted tasks
+            <small>Notify when planning or worker execution cannot finish.</small>
+          </span>
+          <label className="toggle-control">
+            <input
+              type="checkbox"
+              aria-label="Failed or interrupted task notifications"
+              checked={notifications.onFailure}
+              disabled={!desktopNotificationsActive}
+              onChange={(event) =>
+                setNotifications((current) => ({
+                  ...current,
+                  onFailure: event.target.checked,
+                }))
+              }
+            />
+            <span aria-hidden="true" />
+            <em>{notifications.onFailure ? "On" : "Off"}</em>
+          </label>
         </div>
         <div className="settings-actions">
           <button type="submit" disabled={saving || !dirty}>
@@ -681,6 +786,7 @@ export function App() {
   const composerIsComposing = useRef(false);
   const modeControl = useRef(null);
   const bootstrapped = useRef(false);
+  const notifiedSessions = useRef(new Set());
   const selected = useMemo(
     () => data?.sessions.find((session) => session.id === selectedId) || null,
     [data, selectedId],
@@ -749,6 +855,58 @@ export function App() {
     };
     return () => source.close();
   }, [data?.repository.path, selectedId]);
+
+  useEffect(() => {
+    if (
+      !data?.notifications?.enabled ||
+      !("Notification" in globalThis) ||
+      globalThis.Notification.permission !== "granted"
+    )
+      return undefined;
+    const projectPath = data.repository.path;
+    const project = encodeURIComponent(projectPath);
+    const sessions = new Map(data.sessions.map((session) => [session.id, session]));
+    const sources = (data.activeSessionIds || []).map((sessionId) => {
+      const source = new EventSource(`/api/events/${sessionId}?project=${project}`);
+      source.onmessage = (event) => {
+        const parsed = JSON.parse(event.data);
+        if (!shouldNotifyForEvent(data.notifications, parsed)) return;
+        const notificationKey = `${projectPath}:${sessionId}`;
+        if (notifiedSessions.current.has(notificationKey)) return;
+        const outcome = notificationOutcome(parsed);
+        const session = sessions.get(sessionId);
+        const title =
+          outcome === "success"
+            ? "Task completed"
+            : parsed.type === "session_interrupted"
+              ? "Task interrupted"
+              : "Task failed";
+        try {
+          const notification = new globalThis.Notification(`Strategos · ${title}`, {
+            body: session?.goal || `A task in ${data.repository.name} reached a terminal state.`,
+            icon: "/strategos-icon.png",
+            tag: `strategos-${sessionId}`,
+          });
+          if (notifiedSessions.current.size >= 200) notifiedSessions.current.clear();
+          notifiedSessions.current.add(notificationKey);
+          notification.onclick = () => {
+            globalThis.focus?.();
+            notification.close();
+          };
+        } catch {
+          // Browser notification delivery is best effort.
+        }
+      };
+      return source;
+    });
+    return () => sources.forEach((source) => source.close());
+  }, [
+    data?.repository.path,
+    data?.repository.name,
+    data?.activeSessionIds,
+    data?.sessions,
+    data?.notifications,
+  ]);
 
   const selectProject = async (projectPath, nextSelectedId = null) => {
     if (!projectPath || switchingProject) return;
@@ -1050,7 +1208,7 @@ export function App() {
             </button>
           )}
           {view === "settings" ? (
-            <SettingsView data={data} onSaved={setData} />
+            <SettingsView key={data.repository.path} data={data} onSaved={setData} />
           ) : (
             <SessionChat session={selected} liveEvents={liveEvents} />
           )}

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { attachImage, resolveAttachments } from "./attachments.js";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, normalizeNotificationSettings, saveConfig } from "./config.js";
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
 import { loadRun, runPlan } from "./orchestrator.js";
@@ -381,6 +381,7 @@ export function createWebApplication(options) {
           executionMode: config.executionMode || "auto",
           strategist: config.strategist,
           workerMode: config.workerMode,
+          notifications: normalizeNotificationSettings(config.notifications),
           agents: Object.keys(config.agents || {}),
           checks,
           sessions,
@@ -446,11 +447,13 @@ export function createWebApplication(options) {
           ...config,
           executionMode,
           strategist,
+          notifications: normalizeNotificationSettings(input.notifications, config.notifications),
         };
         await saveConfigFn(root, next);
         sendJson(response, 200, {
           executionMode: next.executionMode,
           strategist: next.strategist,
+          notifications: next.notifications,
         });
         return;
       }

@@ -20,8 +20,14 @@ test("hybrid worker participation is the default and can be separated", async ()
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "strategos-config-"));
   assert.equal(DEFAULT_CONFIG.workerMode, "hybrid");
   assert.equal(DEFAULT_CONFIG.executionMode, "auto");
+  assert.deepEqual(DEFAULT_CONFIG.notifications, {
+    enabled: false,
+    onSuccess: true,
+    onFailure: true,
+  });
   assert.equal((await loadConfig(root)).workerMode, "hybrid");
   assert.equal((await loadConfig(root)).executionMode, "auto");
+  assert.deepEqual((await loadConfig(root)).notifications, DEFAULT_CONFIG.notifications);
 
   await fs.mkdir(path.join(root, ".strategos"));
   await fs.writeFile(
@@ -29,11 +35,17 @@ test("hybrid worker participation is the default and can be separated", async ()
     `${JSON.stringify({
       workerMode: "separated",
       executionMode: "manual",
+      notifications: { enabled: true, onSuccess: false },
       capacity: { excludeExhausted: true },
     })}\n`,
     "utf8",
   );
   assert.equal((await loadConfig(root)).workerMode, "separated");
   assert.equal((await loadConfig(root)).executionMode, "manual");
+  assert.deepEqual((await loadConfig(root)).notifications, {
+    enabled: true,
+    onSuccess: false,
+    onFailure: true,
+  });
   assert.equal(Object.hasOwn(await loadConfig(root), "capacity"), false);
 });

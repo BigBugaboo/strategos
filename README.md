@@ -184,7 +184,10 @@ The selected path scopes configuration, sessions, attachments, AI repository con
 and worker execution. Registered paths are stored locally in
 `~/.strategos/projects.json`.
 
-Settings controls the default execution mode and strategist CLI. Agent
+Settings controls the default execution mode, strategist CLI, and optional
+desktop notifications for successful or failed tasks. Browser permission is
+requested when notifications are enabled, and the Web UI must remain open for
+delivery. Agent
 availability comes from local health checks and each agent's `enabled` setting;
 provider quota and billing remain in the provider's own CLI or dashboard. Auto
 mode previews and runs the generated plan, while

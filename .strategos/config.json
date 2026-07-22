@@ -8,6 +8,11 @@
   "baseRef": "HEAD",
   "worktreeRoot": "../.strategos-worktrees",
   "maxContextBytes": 64000,
+  "notifications": {
+    "enabled": false,
+    "onSuccess": true,
+    "onFailure": true
+  },
   "agents": {
     "claude": {
       "command": "claude",
