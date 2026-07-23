@@ -53,6 +53,13 @@ const SOLO_AGENTS = [
 const SOLO_AGENT_LABELS = Object.fromEntries(SOLO_AGENTS.map((item) => [item.name, item.label]));
 const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const QUEUE_STORAGE_KEY = "strategos.queue";
+const SETTINGS_SECTIONS = [
+  { id: "orchestration", label: "Orchestration", icon: SlidersHorizontal },
+  { id: "connections", label: "Connections", icon: Cpu },
+  { id: "interactive", label: "Interactive", icon: Sparkle },
+  { id: "notifications", label: "Notifications", icon: Info },
+  { id: "import", label: "Import history", icon: Archive },
+];
 
 function loadQueue() {
   try {
@@ -1471,6 +1478,7 @@ function SettingsView({ data, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [interactive, setInteractive] = useState(Boolean(data.interactive));
   const [rechecking, setRechecking] = useState(false);
+  const [section, setSection] = useState("orchestration");
   const saveQueue = useRef(Promise.resolve());
   const latestSave = useRef(0);
   const statusTimer = useRef(null);
@@ -1542,130 +1550,176 @@ function SettingsView({ data, onSaved }) {
     <section className="center-page settings-page">
       <header>
         <p className="eyebrow">Preferences</p>
-        <h1>Orchestration</h1>
-        <p>Choose how Strategos plans work and which local CLI leads planning.</p>
+        <h1>Settings</h1>
+        <p>Configure how Strategos plans, connects to CLIs, and notifies you.</p>
       </header>
-      <form onSubmit={(event) => event.preventDefault()}>
-        <div className="settings-row">
-          <label>
-            Default mode<small>Auto previews and starts workers immediately.</small>
-          </label>
-          <select
-            aria-label="Default mode"
-            value={mode}
-            onChange={(event) => {
-              const nextMode = event.target.value;
-              setMode(nextMode);
-              persistSettings({ executionMode: nextMode, strategist, notifications });
-            }}
-          >
-            <option value="auto">Auto</option>
-            <option value="manual">Manual</option>
-          </select>
-        </div>
-        <div className="settings-row">
-          <label>
-            Strategist<small>Falls back to another eligible CLI if unavailable.</small>
-          </label>
-          <select
-            aria-label="Strategist"
-            value={strategist}
-            onChange={(event) => {
-              const nextStrategist = event.target.value;
-              setStrategist(nextStrategist);
-              persistSettings({ executionMode: mode, strategist: nextStrategist, notifications });
-            }}
-          >
-            {data.agents.map((agent) => (
-              <option key={agent}>{agent}</option>
-            ))}
-          </select>
-        </div>
-        <div className="settings-group-heading">
-          <h2>Connections</h2>
-          <p>Install the coding CLIs you want Strategos to orchestrate, then re-check.</p>
-        </div>
-        <ConnectionsPanel
-          checks={data.checks}
-          rechecking={rechecking}
-          onRecheck={recheckConnections}
-        />
-        <InteractivePanel
-          enabled={interactive}
-          onToggle={(next) => {
-            setInteractive(next);
-            persistSettings({ executionMode: mode, strategist, notifications, interactive: next });
-          }}
-        />
-        <ImportSessionsPanel onImported={recheckConnections} />
-        <div className="settings-group-heading">
-          <h2>Notifications</h2>
-          <p>Desktop notifications are delivered while this Web UI remains open.</p>
-        </div>
-        <div className="settings-row">
-          <span className="settings-copy">
-            Desktop notifications
-            <small>
-              {notificationPermission === "denied"
-                ? "Blocked by the browser. Update the site permission to enable notifications."
-                : "Ask the browser to notify you when a task reaches a terminal state."}
-            </small>
-          </span>
-          <label className="toggle-control">
-            <input
-              type="checkbox"
-              aria-label="Desktop notifications"
-              checked={desktopNotificationsActive}
-              disabled={!notificationSupported || notificationPermission === "denied"}
-              onChange={(event) => void toggleNotifications(event.target.checked)}
+      <div className="settings-shell">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {SETTINGS_SECTIONS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={section === item.id ? "active" : ""}
+                aria-current={section === item.id ? "page" : undefined}
+                onClick={() => setSection(item.id)}
+              >
+                <Icon weight={section === item.id ? "fill" : "regular"} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <form className="settings-panel" onSubmit={(event) => event.preventDefault()}>
+          {section === "orchestration" && (
+            <>
+              <div className="settings-group-heading">
+                <h2>Orchestration</h2>
+                <p>Choose how Strategos plans work and which local CLI leads planning.</p>
+              </div>
+              <div className="settings-row">
+                <label>
+                  Default mode<small>Auto previews and starts workers immediately.</small>
+                </label>
+                <select
+                  aria-label="Default mode"
+                  value={mode}
+                  onChange={(event) => {
+                    const nextMode = event.target.value;
+                    setMode(nextMode);
+                    persistSettings({ executionMode: nextMode, strategist, notifications });
+                  }}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </div>
+              <div className="settings-row">
+                <label>
+                  Strategist<small>Falls back to another eligible CLI if unavailable.</small>
+                </label>
+                <select
+                  aria-label="Strategist"
+                  value={strategist}
+                  onChange={(event) => {
+                    const nextStrategist = event.target.value;
+                    setStrategist(nextStrategist);
+                    persistSettings({
+                      executionMode: mode,
+                      strategist: nextStrategist,
+                      notifications,
+                    });
+                  }}
+                >
+                  {data.agents.map((agent) => (
+                    <option key={agent}>{agent}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+          {section === "connections" && (
+            <>
+              <div className="settings-group-heading">
+                <h2>Connections</h2>
+                <p>Install the coding CLIs you want Strategos to orchestrate, then re-check.</p>
+              </div>
+              <ConnectionsPanel
+                checks={data.checks}
+                rechecking={rechecking}
+                onRecheck={recheckConnections}
+              />
+            </>
+          )}
+          {section === "interactive" && (
+            <InteractivePanel
+              enabled={interactive}
+              onToggle={(next) => {
+                setInteractive(next);
+                persistSettings({
+                  executionMode: mode,
+                  strategist,
+                  notifications,
+                  interactive: next,
+                });
+              }}
             />
-            <span aria-hidden="true" />
-            <em>{desktopNotificationsActive ? "On" : "Off"}</em>
-          </label>
-        </div>
-        <div className="settings-row">
-          <span className="settings-copy">
-            Successful tasks<small>Notify after all workers finish successfully.</small>
-          </span>
-          <label className="toggle-control">
-            <input
-              type="checkbox"
-              aria-label="Successful task notifications"
-              checked={notifications.onSuccess}
-              disabled={!desktopNotificationsActive}
-              onChange={(event) => updateNotifications({ onSuccess: event.target.checked })}
-            />
-            <span aria-hidden="true" />
-            <em>{notifications.onSuccess ? "On" : "Off"}</em>
-          </label>
-        </div>
-        <div className="settings-row">
-          <span className="settings-copy">
-            Failed or interrupted tasks
-            <small>Notify when planning or worker execution cannot finish.</small>
-          </span>
-          <label className="toggle-control">
-            <input
-              type="checkbox"
-              aria-label="Failed or interrupted task notifications"
-              checked={notifications.onFailure}
-              disabled={!desktopNotificationsActive}
-              onChange={(event) => updateNotifications({ onFailure: event.target.checked })}
-            />
-            <span aria-hidden="true" />
-            <em>{notifications.onFailure ? "On" : "Off"}</em>
-          </label>
-        </div>
-        {message && (
-          <p
-            className={`settings-status${saving || message === "Saved" ? "" : " is-error"}`}
-            role="status"
-            aria-live="polite"
-          >
-            {message}
-          </p>
-        )}
-      </form>
+          )}
+          {section === "notifications" && (
+            <>
+              <div className="settings-group-heading">
+                <h2>Notifications</h2>
+                <p>Desktop notifications are delivered while this Web UI remains open.</p>
+              </div>
+              <div className="settings-row">
+                <span className="settings-copy">
+                  Desktop notifications
+                  <small>
+                    {notificationPermission === "denied"
+                      ? "Blocked by the browser. Update the site permission to enable notifications."
+                      : "Ask the browser to notify you when a task reaches a terminal state."}
+                  </small>
+                </span>
+                <label className="toggle-control">
+                  <input
+                    type="checkbox"
+                    aria-label="Desktop notifications"
+                    checked={desktopNotificationsActive}
+                    disabled={!notificationSupported || notificationPermission === "denied"}
+                    onChange={(event) => void toggleNotifications(event.target.checked)}
+                  />
+                  <span aria-hidden="true" />
+                  <em>{desktopNotificationsActive ? "On" : "Off"}</em>
+                </label>
+              </div>
+              <div className="settings-row">
+                <span className="settings-copy">
+                  Successful tasks<small>Notify after all workers finish successfully.</small>
+                </span>
+                <label className="toggle-control">
+                  <input
+                    type="checkbox"
+                    aria-label="Successful task notifications"
+                    checked={notifications.onSuccess}
+                    disabled={!desktopNotificationsActive}
+                    onChange={(event) => updateNotifications({ onSuccess: event.target.checked })}
+                  />
+                  <span aria-hidden="true" />
+                  <em>{notifications.onSuccess ? "On" : "Off"}</em>
+                </label>
+              </div>
+              <div className="settings-row">
+                <span className="settings-copy">
+                  Failed or interrupted tasks
+                  <small>Notify when planning or worker execution cannot finish.</small>
+                </span>
+                <label className="toggle-control">
+                  <input
+                    type="checkbox"
+                    aria-label="Failed or interrupted task notifications"
+                    checked={notifications.onFailure}
+                    disabled={!desktopNotificationsActive}
+                    onChange={(event) => updateNotifications({ onFailure: event.target.checked })}
+                  />
+                  <span aria-hidden="true" />
+                  <em>{notifications.onFailure ? "On" : "Off"}</em>
+                </label>
+              </div>
+            </>
+          )}
+          {section === "import" && <ImportSessionsPanel onImported={recheckConnections} />}
+          {message && (
+            <p
+              className={`settings-status${saving || message === "Saved" ? "" : " is-error"}`}
+              role="status"
+              aria-live="polite"
+            >
+              {message}
+            </p>
+          )}
+        </form>
+      </div>
     </section>
   );
 }
