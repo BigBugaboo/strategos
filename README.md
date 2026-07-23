@@ -233,6 +233,25 @@ layout and Split is available for side-by-side review.
 See [docs/web-ui.md](docs/web-ui.md) for Vite+ development commands and the
 Web execution settings.
 
+### Import existing CLI sessions
+
+If you already have Claude Code or Codex CLI history on your machine, Settings ▸
+**Import history** ▸ **Scan sessions** discovers those transcripts and lets you
+adopt any of them as Strategos sessions. Scanning is read-only: it reads
+`~/.claude/projects/**` and `~/.codex/sessions/**` to derive each session's
+title, working directory, branch, and timestamp, and never modifies the original
+history. Sessions whose working directory matches the current project are grouped
+under **This project**; the rest are grouped by their original location. Select
+the sessions you want and choose **Import selected**; already-imported sessions
+are marked and skipped.
+
+An imported session is pinned to its source CLI. Selecting it and choosing
+**Continue** (with a follow-up instruction typed in the message box) resumes the
+original conversation through that CLI's own resume mode — `claude --resume` or
+`codex exec resume` — running in the session's original working directory so the
+CLI reads the history it recorded there. The follow-up runs in the background and
+its output appears in **Recent output**.
+
 ### Add image context
 
 Attach a saved image before entering the goal:
@@ -442,6 +461,10 @@ receives both reports in its compiled prompt.
   worktrees by default.
 - Prompts are passed as subprocess arguments, never interpolated into a shell
   command.
+- Importing native CLI history is read-only and opt-in: Strategos scans
+  `~/.claude` and `~/.codex` only when you open Import history, imports only the
+  sessions you select, and resolves each selection from a fresh server-side scan
+  rather than any client-supplied path.
 
 Agent tools still run as your operating-system user. Worktrees prevent Git edit
 collisions; they are not a complete OS sandbox.

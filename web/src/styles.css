@@ -1485,6 +1485,107 @@ input:focus-visible {
   inherits: false;
   initial-value: 0deg;
 }
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.composer-row > .composer {
+  flex: 1;
+  min-width: 0;
+}
+.queue-rail {
+  width: 210px;
+  flex: none;
+  max-height: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: 9px;
+  border: 1px solid #2d3a49;
+  border-radius: 10px;
+  background: #0d1723;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+.queue-rail-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #9aa5b3;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.queue-rail-heading svg {
+  width: 13px;
+  height: 13px;
+}
+.queue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  overflow-y: auto;
+}
+.queue-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid #263441;
+  border-radius: 8px;
+  background: #111d2a;
+}
+.queue-index {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #1c2a39;
+  color: #8f9aa8;
+  font-size: 9px;
+}
+.queue-text {
+  margin: 0;
+  overflow: hidden;
+  color: #ccd3dc;
+  font-size: 11.5px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.queue-actions {
+  grid-column: 2;
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+.queue-actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: #1a2735;
+  color: #9aa5b3;
+  cursor: pointer;
+}
+.queue-actions button:hover {
+  background: #24344640;
+  color: #eaf0f6;
+}
+.queue-actions button:first-child:hover {
+  color: #c3b4ff;
+}
+.queue-actions svg {
+  width: 13px;
+  height: 13px;
+}
 .composer {
   position: relative;
   border: 1px solid #354252;
@@ -2803,6 +2904,110 @@ kbd {
   .diff-content {
     padding: 12px 10px 30px;
   }
+}
+
+.native-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid #26303d;
+  border-radius: 9px;
+  background: #101923;
+}
+.native-session-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.native-session-group h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #7f8ea3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.native-session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #26303d;
+  border-radius: 7px;
+  background: #16212e;
+  cursor: pointer;
+}
+.native-session:hover {
+  border-color: #3a4757;
+}
+.native-session.is-imported {
+  opacity: 0.55;
+  cursor: default;
+}
+.native-session input[type="checkbox"] {
+  flex: none;
+}
+.native-session .agent-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.native-session-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.native-session-body strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #dbe2ea;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.native-session-body small {
+  font-size: 10.5px;
+  color: #7f8ea3;
+}
+.native-sessions-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.native-import {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 15px;
+  border: 1px solid #3a4757;
+  border-radius: 7px;
+  background: #1b2836;
+  color: #dbe2ea;
+  font-size: 11px;
+  cursor: pointer;
+}
+.native-import:hover:not(:disabled) {
+  border-color: #56637a;
+}
+.native-import:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.native-import svg {
+  width: 14px;
+  height: 14px;
+}
+.status-dot.status-imported {
+  background: #9b5cff;
 }
 
 @media (prefers-reduced-motion: reduce) {

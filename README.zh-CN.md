@@ -191,6 +191,21 @@ diff，默认使用 Unified 布局，也可切换为 Split 并排查看。差异
 
 Vite+ 开发方式和 Web 执行设置详见 [docs/web-ui.md](docs/web-ui.md)（英文标准文档）。
 
+### 导入已有的 CLI Session
+
+如果你的电脑上已经有 Claude Code 或 Codex CLI 的历史记录，可在 Settings ▸
+**Import history** ▸ **Scan sessions** 中扫描出这些会话，并把任意一条导入为
+Strategos Session。扫描是只读的：仅读取 `~/.claude/projects/**` 与
+`~/.codex/sessions/**` 以提取每条会话的标题、工作目录、分支和时间，绝不修改
+原始历史。工作目录与当前项目一致的会话归入 **This project**，其余按原始位置
+分组。勾选需要的会话并点击 **Import selected** 即可；已导入的会话会被标记并
+跳过。
+
+导入的 Session 会绑定到其来源 CLI。选中后在输入框里写下后续指令再点击
+**Continue**，即通过该 CLI 自带的续跑模式（`claude --resume` 或
+`codex exec resume`）继续原始对话，并在会话原始工作目录中运行，让 CLI 读取它
+当初记录的历史。后续指令在后台执行，输出显示在 **Recent output** 中。
+
 ### 添加图片上下文
 
 在输入任务前先附加本地图片：
@@ -351,6 +366,9 @@ strategos uninstall                 # 删除已确认的 npm 全局安装
 - Copilot 写权限需要使用者在配置中显式增加当前版本支持的参数。
 - 默认不使用任何 dangerous bypass 参数。
 - 默认不 merge、不 push、不删除 worktree。
+- 导入原生 CLI 历史是只读且需主动触发：仅在你打开 Import history 时才扫描
+  `~/.claude` 与 `~/.codex`，只导入你勾选的会话，且每次导入都在服务端重新扫描
+  解析，绝不信任前端传入的路径。
 - worktree 解决的是代码冲突，不等于完整操作系统沙箱。
 
 完整英文说明、Plan 示例、架构和灵感来源见 [README.md](README.md)。

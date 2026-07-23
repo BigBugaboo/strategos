@@ -15,6 +15,8 @@ import { createProjectRegistry } from "./projects.js";
 import { ptyAvailable, runCommand } from "./process.js";
 import { createRequire } from "node:module";
 import { buildResumeContext, createSessionStore } from "./session.js";
+import { resumeInvocation } from "./adapters.js";
+import { publicNativeSession, scanNativeSessions } from "./native-sessions.js";
 
 // Build node-pty's native binary on demand so users whose package manager
 // blocks install scripts can enable interactive prompts from the UI.
@@ -107,6 +109,8 @@ function publicSession(session) {
     runId: session.runId,
     manifest: session.manifest,
     events: session.events || [],
+    guidanceNotes: session.guidanceNotes || [],
+    imported: session.imported || null,
     error: session.error,
     pinned: Boolean(session.pinned),
     archivedAt: session.archivedAt || null,
@@ -210,6 +214,8 @@ export function createWebApplication(options) {
   const pickDirectoryFn = options.pickDirectoryFn || pickDirectory;
   const ptyAvailableFn = options.ptyAvailableFn || ptyAvailable;
   const buildInteractiveSupportFn = options.buildInteractiveSupportFn || buildInteractiveSupport;
+  const scanNativeSessionsFn = options.scanNativeSessionsFn || scanNativeSessions;
+  const runCommandFn = options.runCommandFn || runCommand;
   const projectRegistry = options.projectRegistry || createProjectRegistry({ initialRoot });
   const webControl = options.webControl;
   const sessionStores = new Map();
@@ -217,6 +223,8 @@ export function createWebApplication(options) {
   const subscribers = new Map();
   const active = new Map();
   const pendingPrompts = new Map();
+  // sessionId -> Set of live steer functions for interactive workers (Codex).
+  const steerHandlers = new Map();
 
   const projectContext = async (projectPath) => {
     const project = await projectRegistry.resolve(projectPath || initialRoot);
@@ -298,6 +306,22 @@ export function createWebApplication(options) {
     }
   };
 
+  // Register a live steer function for a session's interactive worker so the
+  // guidance endpoint can inject the user's text into the running turn.
+  const makeOnSteer = (context, sessionId) => (steer) => {
+    if (typeof steer !== "function") return () => {};
+    const key = contextKey(context, sessionId);
+    const set = steerHandlers.get(key) || new Set();
+    set.add(steer);
+    steerHandlers.set(key, set);
+    return () => {
+      const current = steerHandlers.get(key);
+      if (!current) return;
+      current.delete(steer);
+      if (!current.size) steerHandlers.delete(key);
+    };
+  };
+
   const updateSession = async (context, session, patch, event) => {
     const updated = await context.sessionStore.update(session, patch);
     if (event) publish(context, updated.id, event);
@@ -320,6 +344,7 @@ export function createWebApplication(options) {
         planInput,
         signal,
         onPrompt: makeOnPrompt(context, session.id),
+        onSteer: makeOnSteer(context, session.id),
         onEvent: (event) => {
           const stampedEvent = { ...event, at: event.at || new Date().toISOString() };
           publish(context, session.id, stampedEvent);
@@ -436,6 +461,96 @@ export function createWebApplication(options) {
       }, interrupted
         ? { type: "session_interrupted", phase: "planning" }
         : { type: "session_error", error: String(error.message || error) });
+    }
+  };
+
+  // Continue an imported native transcript by handing the follow-up prompt to
+  // the source CLI's own resume mode. This runs in the original working
+  // directory rather than a Strategos worktree, so the CLI reads the history it
+  // recorded there and edits stay where the user's session already lives.
+  const resumeNativeSession = async (context, initialSession, { prompt, mode, signal }) => {
+    const config = await loadConfigFn(context.root);
+    const source = initialSession.imported?.source;
+    if (!config.agents?.[source]) {
+      throw new Error(`the ${source} CLI is not configured; cannot resume this session`);
+    }
+    const nativeSessionId = initialSession.imported.nativeSessionId;
+    const requested = initialSession.imported.cwd;
+    let workspace = context.root;
+    if (requested) {
+      try {
+        const stat = await fs.stat(requested);
+        if (stat.isDirectory()) workspace = requested;
+      } catch {
+        // The original directory is gone; fall back to the project root.
+      }
+    }
+    const startedAt = new Date().toISOString();
+    let session = await updateSession(context, initialSession, {
+      status: "running",
+      error: null,
+      finishedAt: null,
+    }, undefined);
+    const startEvent = {
+      type: "native_resume_started",
+      at: startedAt,
+      source,
+      note: prompt,
+    };
+    session = await context.sessionStore.appendEvent(session, startEvent);
+    publish(context, session.id, startEvent);
+    try {
+      const invocation = resumeInvocation(source, {
+        nativeSessionId,
+        prompt,
+        mode,
+        workspace,
+        config,
+      });
+      const result = await runCommandFn(invocation.command, invocation.args, {
+        cwd: workspace,
+        signal,
+        timeoutMs: (config.taskTimeoutMinutes || 45) * 60_000,
+      });
+      const report = String(result.stdout || "").trim();
+      const aborted = result.aborted || signal?.aborted;
+      let error = null;
+      if (aborted) error = null;
+      else if (result.timedOut) error = `the ${source} CLI exceeded ${config.taskTimeoutMinutes} minutes`;
+      else if (result.code !== 0) {
+        error = String(result.stderr || "").trim() || `${source} exited with code ${result.code}`;
+      } else if (!report) error = `${source} returned no output`;
+      const finishedAt = new Date().toISOString();
+      const finishEvent = {
+        type: "native_resume_finished",
+        at: finishedAt,
+        source,
+        report: report || undefined,
+        exitCode: typeof result.code === "number" ? result.code : undefined,
+        error: error || undefined,
+      };
+      session = await updateSession(context, session, {
+        // Keep the session resumable so the user can continue the thread again.
+        status: aborted ? "interrupted" : error ? "failed" : "imported",
+        error: error ? String(error).slice(0, 4_000) : null,
+        finishedAt,
+        imported: { ...session.imported, lastResumedAt: finishedAt },
+      }, undefined);
+      session = await context.sessionStore.appendEvent(session, finishEvent);
+      publish(context, session.id, finishEvent);
+    } catch (error) {
+      const interrupted = signal?.aborted;
+      const at = new Date().toISOString();
+      session = await updateSession(context, session, {
+        status: interrupted ? "interrupted" : "failed",
+        error: interrupted ? null : String(error.message || error).slice(0, 4_000),
+        finishedAt: at,
+      }, undefined);
+      const errorEvent = interrupted
+        ? { type: "session_interrupted", at, phase: "native_resume" }
+        : { type: "native_resume_finished", at, source, error: String(error.message || error) };
+      session = await context.sessionStore.appendEvent(session, errorEvent);
+      publish(context, session.id, errorEvent);
     }
   };
 
@@ -557,6 +672,65 @@ export function createWebApplication(options) {
           limit: 100,
         });
         sendJson(response, 200, sessions.map(publicSession));
+        return;
+      }
+      if (request.method === "GET" && pathname === "/api/native-sessions") {
+        const descriptors = await scanNativeSessionsFn({ projectRoot: root });
+        const existing = await sessionStore.list({ includeArchived: true, limit: 1000 });
+        const importedKeys = new Set(
+          existing
+            .filter((session) => session.imported)
+            .map((session) => `${session.imported.source}-${session.imported.nativeSessionId}`),
+        );
+        sendJson(response, 200, {
+          sessions: descriptors.map((descriptor) => ({
+            ...publicNativeSession(descriptor),
+            alreadyImported: importedKeys.has(descriptor.id),
+          })),
+        });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/native-sessions/import") {
+        const input = await readJsonBody(request);
+        if (!Array.isArray(input.ids) || !input.ids.length) {
+          throw Object.assign(new Error("ids must be a non-empty array"), { status: 400 });
+        }
+        const requestedIds = new Set(input.ids.map((id) => String(id)));
+        if (requestedIds.size > 100) {
+          throw Object.assign(new Error("cannot import more than 100 sessions at once"), {
+            status: 400,
+          });
+        }
+        // Always resolve selections against a fresh, trusted scan; the client
+        // never supplies transcript paths, only opaque descriptor ids.
+        const descriptors = await scanNativeSessionsFn({ projectRoot: root });
+        const byId = new Map(descriptors.map((descriptor) => [descriptor.id, descriptor]));
+        const existing = await sessionStore.list({ includeArchived: true, limit: 1000 });
+        const importedKeys = new Set(
+          existing
+            .filter((session) => session.imported)
+            .map((session) => `${session.imported.source}-${session.imported.nativeSessionId}`),
+        );
+        const imported = [];
+        const skipped = [];
+        for (const id of requestedIds) {
+          const descriptor = byId.get(id);
+          if (!descriptor) {
+            skipped.push({ id, reason: "not found" });
+            continue;
+          }
+          if (importedKeys.has(descriptor.id)) {
+            skipped.push({ id, reason: "already imported" });
+            continue;
+          }
+          const session = await sessionStore.importSession({
+            source: descriptor.source,
+            descriptor,
+          });
+          importedKeys.add(descriptor.id);
+          imported.push(publicSession(session));
+        }
+        sendJson(response, 200, { imported, skipped });
         return;
       }
       if (request.method === "POST" && pathname === "/api/sessions/batch") {
@@ -811,6 +985,37 @@ export function createWebApplication(options) {
         sendJson(response, 200, { ok: true });
         return;
       }
+      if (request.method === "POST" && pathname === "/api/guidance") {
+        const input = await readJsonBody(request);
+        const text = String(input.text || "").trim();
+        if (!text) throw Object.assign(new Error("guidance text is required"), { status: 400 });
+        const at = new Date().toISOString();
+        const activeIds = [...active.keys()]
+          .filter((key) => key.startsWith(`${root} `))
+          .map((key) => key.slice(root.length + 1));
+        let steered = 0;
+        for (const sessionId of activeIds) {
+          const session = await sessionStore.load(sessionId);
+          if (!session) continue;
+          // Inject into a live interactive worker turn when one is available.
+          const handlers = steerHandlers.get(contextKey(context, sessionId));
+          if (handlers) {
+            for (const steer of handlers) {
+              try {
+                if (await steer(text)) steered += 1;
+              } catch {
+                // A failed steer falls back to the recorded guidance note.
+              }
+            }
+          }
+          // Always record the note so it stays part of the session's context.
+          const guidanceNotes = [...(session.guidanceNotes || []), { text, at }];
+          await sessionStore.update(session, { guidanceNotes });
+          publish(context, sessionId, { type: "guidance_added", at, text, steered: steered > 0 });
+        }
+        sendJson(response, 200, { ok: true, delivered: activeIds.length, steered });
+        return;
+      }
       const stopMatch = pathname.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)\/stop$/);
       if (request.method === "POST" && stopMatch) {
         const session = await sessionStore.load(stopMatch[1]);
@@ -853,6 +1058,20 @@ export function createWebApplication(options) {
           throw Object.assign(new Error("session is already active"), { status: 409 });
         }
         const input = await readJsonBody(request);
+        if (session.imported) {
+          const prompt = String(input.goal || input.prompt || "").trim();
+          if (!prompt) {
+            throw Object.assign(
+              new Error("a follow-up instruction is required to continue an imported session"),
+              { status: 400 },
+            );
+          }
+          const mode = input.mode === "read-only" ? "read-only" : "write";
+          startBackground(context, session, (signal) =>
+            resumeNativeSession(context, session, { prompt, mode, signal }));
+          sendJson(response, 202, publicSession(session));
+          return;
+        }
         const resumeBaseRef = await resolveBaseRef(root, input.baseRef ?? session.baseRef);
         if (resumeBaseRef && resumeBaseRef !== session.baseRef) {
           session = await sessionStore.update(session, { baseRef: resumeBaseRef });

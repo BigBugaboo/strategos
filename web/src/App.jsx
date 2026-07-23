@@ -9,6 +9,7 @@ import {
   CheckCircle,
   ClockCounterClockwise,
   Cpu,
+  DownloadSimple,
   FileCode,
   FolderOpen,
   GearSix,
@@ -51,6 +52,16 @@ const SOLO_AGENTS = [
 ];
 const SOLO_AGENT_LABELS = Object.fromEntries(SOLO_AGENTS.map((item) => [item.name, item.label]));
 const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const QUEUE_STORAGE_KEY = "strategos.queue";
+
+function loadQueue() {
+  try {
+    const value = JSON.parse(globalThis.localStorage?.getItem(QUEUE_STORAGE_KEY) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
 const CLI_GUIDES = [
   { name: "claude", label: "Claude Code", install: "npm install -g @anthropic-ai/claude-code" },
   { name: "codex", label: "Codex CLI", install: "npm install -g @openai/codex" },
@@ -118,6 +129,7 @@ function statusLabel(status) {
       succeeded: "Complete",
       failed: "Failed",
       interrupted: "Interrupted",
+      imported: "Imported",
     }[status] ||
     status ||
     "Ready"
@@ -134,6 +146,15 @@ function eventText(event) {
     return `${event.task.agent}: ${event.task.status} ${event.task.id}`;
   if (event.type === "run_finished") {
     return `Strategos: Run ${event.manifest?.status || event.status || "finished"}`;
+  }
+  if (event.type === "guidance_added") return `You (guidance): ${event.text}`;
+  if (event.type === "native_imported") {
+    return `Strategos: Imported ${event.source || "native"} session`;
+  }
+  if (event.type === "native_resume_started") return `${event.source}: Continuing conversation`;
+  if (event.type === "native_resume_finished") {
+    if (event.error) return `${event.source}: ${event.error}`;
+    return event.report ? `${event.source}: ${event.report}` : `${event.source}: Done`;
   }
   if (event.type === "session_stopping") return "Strategos: Stopping active CLI processes";
   if (event.type === "session_interrupted") return "Strategos: Session stopped";
@@ -1225,6 +1246,177 @@ function InteractivePanel({ enabled, onToggle }) {
   );
 }
 
+const NATIVE_SOURCE_LABELS = { claude: "Claude Code", codex: "Codex CLI" };
+
+function nativeSessionDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function groupNativeSessions(sessions) {
+  const mine = [];
+  const others = new Map();
+  for (const session of sessions) {
+    if (session.matchesProject) {
+      mine.push(session);
+      continue;
+    }
+    const key = session.cwd || "(unknown location)";
+    if (!others.has(key)) others.set(key, []);
+    others.get(key).push(session);
+  }
+  return {
+    mine,
+    others: [...others.entries()].map(([cwd, items]) => ({ cwd, items })),
+  };
+}
+
+// Discover the user's existing Claude/Codex transcripts and let them adopt any
+// as resumable Strategos sessions. Scanning is deferred until the panel opens.
+function ImportSessionsPanel({ onImported }) {
+  const [open, setOpen] = useState(false);
+  const [sessions, setSessions] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+  const [loadError, setLoadError] = useState("");
+  const [message, setMessage] = useState("");
+  const [importing, setImporting] = useState(false);
+  const load = async () => {
+    setLoadError("");
+    setSessions(null);
+    try {
+      const result = await api("/api/native-sessions");
+      setSessions(result.sessions || []);
+    } catch (requestError) {
+      setLoadError(requestError.message);
+      setSessions([]);
+    }
+  };
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && sessions === null) void load();
+  };
+  const toggleSelected = (id) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const importSelected = async () => {
+    if (!selected.size) return;
+    setImporting(true);
+    setMessage("");
+    try {
+      const result = await api("/api/native-sessions/import", {
+        method: "POST",
+        body: JSON.stringify({ ids: [...selected] }),
+      });
+      const count = result.imported.length;
+      setSelected(new Set());
+      setMessage(`Imported ${count} session${count === 1 ? "" : "s"}.`);
+      await load();
+      onImported?.();
+    } catch (requestError) {
+      setMessage(requestError.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+  const groups = useMemo(() => groupNativeSessions(sessions || []), [sessions]);
+  const renderItem = (session) => (
+    <label
+      key={session.id}
+      className={`native-session ${session.alreadyImported ? "is-imported" : ""}`}
+    >
+      <input
+        type="checkbox"
+        disabled={session.alreadyImported || importing}
+        checked={selected.has(session.id)}
+        onChange={() => toggleSelected(session.id)}
+      />
+      <span className={`agent-dot`} style={{ background: AGENT_COLORS[session.source] }} />
+      <span className="native-session-body">
+        <strong>{session.title}</strong>
+        <small>
+          {NATIVE_SOURCE_LABELS[session.source] || session.source}
+          {session.gitBranch ? ` · ${session.gitBranch}` : ""}
+          {session.updatedAt ? ` · ${nativeSessionDate(session.updatedAt)}` : ""}
+          {session.alreadyImported ? " · Imported" : ""}
+        </small>
+      </span>
+    </label>
+  );
+  return (
+    <>
+      <div className="settings-group-heading">
+        <h2>Import history</h2>
+        <p>
+          Bring your existing Claude Code and Codex CLI sessions into Strategos. Importing only
+          reads local history; resuming an imported session continues that CLI's own conversation.
+        </p>
+      </div>
+      <div className="settings-row">
+        <span className="settings-copy">
+          Local CLI sessions
+          <small>Scan this machine for Claude and Codex transcripts you can adopt.</small>
+        </span>
+        <button type="button" className="connection-recheck" onClick={toggleOpen}>
+          {open ? "Hide" : "Scan sessions"}
+        </button>
+      </div>
+      {open && (
+        <div className="native-sessions">
+          {loadError && <p className="settings-status is-error">{loadError}</p>}
+          {sessions === null && !loadError && <p className="quiet">Scanning local history…</p>}
+          {sessions && sessions.length === 0 && !loadError && (
+            <p className="quiet">No Claude or Codex sessions were found on this machine.</p>
+          )}
+          {groups.mine.length > 0 && (
+            <div className="native-session-group">
+              <h3>This project</h3>
+              {groups.mine.map(renderItem)}
+            </div>
+          )}
+          {groups.others.map((group) => (
+            <div className="native-session-group" key={group.cwd}>
+              <h3 title={group.cwd}>{shortPath(group.cwd)}</h3>
+              {group.items.map(renderItem)}
+            </div>
+          ))}
+          {sessions && sessions.length > 0 && (
+            <div className="native-sessions-actions">
+              <button
+                type="button"
+                className="native-import"
+                disabled={!selected.size || importing}
+                onClick={() => void importSelected()}
+              >
+                <DownloadSimple />
+                {importing ? "Importing…" : `Import selected (${selected.size})`}
+              </button>
+              {message && (
+                <span
+                  className={`settings-status${message.startsWith("Imported") ? "" : " is-error"}`}
+                  role="status"
+                >
+                  {message}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function SettingsView({ data, onSaved }) {
   const [mode, setMode] = useState(data.executionMode);
   const [strategist, setStrategist] = useState(data.strategist);
@@ -1364,6 +1556,7 @@ function SettingsView({ data, onSaved }) {
             persistSettings({ executionMode: mode, strategist, notifications, interactive: next });
           }}
         />
+        <ImportSessionsPanel onImported={recheckConnections} />
         <div className="settings-group-heading">
           <h2>Notifications</h2>
           <p>Desktop notifications are delivered while this Web UI remains open.</p>
@@ -1649,18 +1842,39 @@ function Inspector({
           </dd>
           <dt>Mode</dt>
           <dd>{session.executionMode === "manual" ? "Manual" : "Auto"}</dd>
+          {session.imported && (
+            <>
+              <dt>Imported from</dt>
+              <dd>
+                {NATIVE_SOURCE_LABELS[session.imported.source] || session.imported.source}
+                {session.imported.cliVersion ? ` ${session.imported.cliVersion}` : ""}
+              </dd>
+            </>
+          )}
         </dl>
+        {session.imported && !isActive && (
+          <p className="headless-note">
+            Type a follow-up in the message box, then Continue to resume this{" "}
+            {NATIVE_SOURCE_LABELS[session.imported.source] || session.imported.source} conversation.
+          </p>
+        )}
         <div className="session-actions">
           {["planned", "previewed"].includes(session.status) && (
             <button onClick={onRun}>
               <Play weight="fill" /> Run plan
             </button>
           )}
-          {(["failed", "interrupted"].includes(session.status) || detached) && (
-            <button onClick={onResume}>
-              <ClockCounterClockwise /> Resume
-            </button>
-          )}
+          {session.imported
+            ? !isActive && (
+                <button onClick={onResume}>
+                  <ClockCounterClockwise /> Continue
+                </button>
+              )
+            : (["failed", "interrupted"].includes(session.status) || detached) && (
+                <button onClick={onResume}>
+                  <ClockCounterClockwise /> Resume
+                </button>
+              )}
           {isActive && ["planning", "previewed", "running"].includes(session.status) && (
             <button
               className="stop-session"
@@ -1772,6 +1986,7 @@ export function App() {
   const [soloAgent, setSoloAgent] = useState(() => savedSoloAgent());
   const [attachments, setAttachments] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState(null);
+  const [queue, setQueue] = useState(() => loadQueue());
   const [loaderVisible, setLoaderVisible] = useState(true);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [recheckingConnections, setRecheckingConnections] = useState(false);
@@ -1789,6 +2004,8 @@ export function App() {
   const composerInput = useRef(null);
   const composerIsComposing = useRef(false);
   const attachmentSeq = useRef(0);
+  const queueSeq = useRef(0);
+  const draining = useRef(false);
   const modeControl = useRef(null);
   const bootstrapped = useRef(false);
   const notifiedSessions = useRef(new Set());
@@ -1797,6 +2014,36 @@ export function App() {
     () => data?.sessions.find((session) => session.id === selectedId) || null,
     [data, selectedId],
   );
+  const projectPath = data?.repository.path;
+  // The queue is per project; persist it so a refresh keeps pending items.
+  useEffect(() => {
+    globalThis.localStorage?.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
+  }, [queue]);
+  const projectQueue = useMemo(
+    () => queue.filter((item) => item.projectPath === projectPath),
+    [queue, projectPath],
+  );
+  const hasActiveSessions = (data?.activeSessionIds || []).length > 0;
+  // Once every active task finishes, launch the next queued item in order.
+  useEffect(() => {
+    if (!data || hasActiveSessions || submitting || draining.current) return;
+    const next = projectQueue[0];
+    if (!next) return;
+    draining.current = true;
+    setSubmitting(true);
+    setQueue((items) => items.filter((item) => item.id !== next.id));
+    launchGoal({
+      goal: next.text,
+      mode: next.mode,
+      soloAgent: next.soloAgent,
+      baseRef: next.baseRef,
+    })
+      .catch((requestError) => setError(requestError.message))
+      .finally(() => {
+        draining.current = false;
+        setSubmitting(false);
+      });
+  }, [data, hasActiveSessions, submitting, projectQueue]);
   // Derive the still-unanswered interactive prompt per task from the live stream.
   const pendingPrompts = useMemo(() => {
     const open = new Map();
@@ -2139,51 +2386,94 @@ export function App() {
     globalThis.localStorage?.setItem(SOLO_AGENT_STORAGE_KEY, name);
     setModeMenuOpen(false);
   };
+  const uploadAttachments = async (files) => {
+    const attachmentPaths = [];
+    for (const file of files) {
+      const dataBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () =>
+          resolve(typeof reader.result === "string" ? reader.result.split(",")[1] : "");
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const saved = await api("/api/attachments", {
+        method: "POST",
+        body: JSON.stringify({ name: file.name, mimeType: file.type, dataBase64 }),
+      });
+      attachmentPaths.push(saved.relativePath);
+    }
+    return attachmentPaths;
+  };
+  const launchGoal = async ({
+    goal,
+    mode: goalMode,
+    soloAgent: goalSolo,
+    baseRef,
+    attachmentPaths = [],
+  }) => {
+    const session = await api("/api/goals", {
+      method: "POST",
+      body: JSON.stringify({
+        goal,
+        executionMode: goalSolo ? "auto" : goalMode,
+        soloAgent: goalSolo || undefined,
+        attachmentPaths,
+        baseRef: baseRef || undefined,
+      }),
+    });
+    setData((current) => ({
+      ...current,
+      sessions: [session, ...current.sessions.filter((item) => item.id !== session.id)],
+      sessionGroups: sidebarGroupsFor(current).map((group) =>
+        group.path === current.repository.path
+          ? {
+              ...group,
+              sessions: [session, ...group.sessions.filter((item) => item.id !== session.id)],
+            }
+          : group,
+      ),
+      activeSessionIds: [...new Set([...(current.activeSessionIds || []), session.id])],
+    }));
+    setSelectedId(session.id);
+    return session;
+  };
   const send = async () => {
     const goal = draft.trim();
     if (!goal || submitting) return;
     setError("");
+    // While tasks are running, hold new input in the queue instead of launching
+    // it immediately; it runs after the active tasks finish (or can be used as
+    // guidance / edited from the queue).
+    if (hasActiveSessions) {
+      queueSeq.current += 1;
+      const item = {
+        id: `q-${Date.now()}-${queueSeq.current}`,
+        projectPath,
+        text: goal,
+        mode,
+        soloAgent: activeSolo || null,
+        baseRef: selectedBranch || null,
+      };
+      setQueue((items) => [...items, item]);
+      setDraft("");
+      setModeMenuOpen(false);
+      if (attachments.length) {
+        setError("Queued the text; re-attach images when it runs (attachments aren't queued).");
+      }
+      setAttachments([]);
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
     setSubmitting(true);
     try {
-      const attachmentPaths = [];
-      for (const file of attachments) {
-        const dataBase64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () =>
-            resolve(typeof reader.result === "string" ? reader.result.split(",")[1] : "");
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const saved = await api("/api/attachments", {
-          method: "POST",
-          body: JSON.stringify({ name: file.name, mimeType: file.type, dataBase64 }),
-        });
-        attachmentPaths.push(saved.relativePath);
-      }
-      const session = await api("/api/goals", {
-        method: "POST",
-        body: JSON.stringify({
-          goal,
-          executionMode: activeSolo ? "auto" : mode,
-          soloAgent: activeSolo || undefined,
-          attachmentPaths,
-          baseRef: selectedBranch || undefined,
-        }),
+      const attachmentPaths = await uploadAttachments(attachments);
+      await launchGoal({
+        goal,
+        mode,
+        soloAgent: activeSolo,
+        baseRef: selectedBranch,
+        attachmentPaths,
       });
-      setData((current) => ({
-        ...current,
-        sessions: [session, ...current.sessions.filter((item) => item.id !== session.id)],
-        sessionGroups: sidebarGroupsFor(current).map((group) =>
-          group.path === current.repository.path
-            ? {
-                ...group,
-                sessions: [session, ...group.sessions.filter((item) => item.id !== session.id)],
-              }
-            : group,
-        ),
-        activeSessionIds: [...new Set([...(current.activeSessionIds || []), session.id])],
-      }));
-      setSelectedId(session.id);
       setDraft("");
       setAttachments([]);
       setModeMenuOpen(false);
@@ -2192,6 +2482,30 @@ export function App() {
       setError(requestError.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+  const removeQueued = (id) => setQueue((items) => items.filter((item) => item.id !== id));
+  const editQueued = (item) => {
+    setDraft(item.text);
+    setMode(item.mode || "auto");
+    setSoloAgent(item.soloAgent || "");
+    setSelectedBranch(item.baseRef || null);
+    removeQueued(item.id);
+    globalThis.setTimeout(() => composerInput.current?.focus(), 0);
+  };
+  const guideQueued = async (item) => {
+    setError("");
+    try {
+      const result = await api("/api/guidance", {
+        method: "POST",
+        body: JSON.stringify({ text: item.text }),
+      });
+      removeQueued(item.id);
+      if (!result.delivered) {
+        setError("No active tasks to guide right now.");
+      }
+    } catch (requestError) {
+      setError(requestError.message);
     }
   };
   const addImageFiles = (files) => {
@@ -2235,6 +2549,28 @@ export function App() {
   const resumeSelected = async () => {
     if (!selected) return;
     setError("");
+    // Imported native sessions continue their original CLI conversation, so they
+    // need a follow-up instruction. Reuse whatever is typed in the composer.
+    if (selected.imported) {
+      const followUp = draft.trim();
+      if (!followUp) {
+        setError(
+          "Type a follow-up instruction in the message box, then Resume to continue this imported session.",
+        );
+        return;
+      }
+      try {
+        await api(`/api/sessions/${selected.id}/resume`, {
+          method: "POST",
+          body: JSON.stringify({ goal: followUp }),
+        });
+        setDraft("");
+        await refresh();
+      } catch (requestError) {
+        setError(requestError.message);
+      }
+      return;
+    }
     try {
       await api(`/api/sessions/${selected.id}/resume`, {
         method: "POST",
@@ -2434,178 +2770,228 @@ export function App() {
                   onAdd={addProject}
                 />
               )}
-              <form
-                className="composer"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void send();
-                }}
-              >
-                {attachments.length > 0 && (
-                  <div className="attachment-list" aria-label="Attached images">
-                    {attachments.map((file, index) => (
-                      <span key={`${file.name}-${file.lastModified}-${index}`}>
-                        <Paperclip />
-                        <span>{file.name}</span>
-                        <button
-                          type="button"
-                          aria-label={`Remove ${file.name}`}
-                          onClick={() =>
-                            setAttachments((items) =>
-                              items.filter((_, itemIndex) => itemIndex !== index),
-                            )
-                          }
-                        >
-                          <X />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
+              <div className="composer-row">
+                {projectQueue.length > 0 && (
+                  <aside className="queue-rail" aria-label="Queued messages">
+                    <div className="queue-rail-heading">
+                      <ClockCounterClockwise />
+                      <span>Queued · {projectQueue.length}</span>
+                    </div>
+                    <ol className="queue-list">
+                      {projectQueue.map((item, index) => (
+                        <li key={item.id} className="queue-item">
+                          <span className="queue-index">{index + 1}</span>
+                          <p className="queue-text" title={item.text}>
+                            {item.text}
+                          </p>
+                          <div className="queue-actions">
+                            <button
+                              type="button"
+                              title="Send now as guidance to running tasks"
+                              aria-label="Guide running tasks with this"
+                              onClick={() => void guideQueued(item)}
+                            >
+                              <Sparkle weight="fill" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Edit in the composer"
+                              aria-label="Edit this queued message"
+                              onClick={() => editQueued(item)}
+                            >
+                              <Info />
+                            </button>
+                            <button
+                              type="button"
+                              title="Remove from queue"
+                              aria-label="Remove this queued message"
+                              onClick={() => removeQueued(item.id)}
+                            >
+                              <X />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </aside>
                 )}
-                <textarea
-                  ref={composerInput}
-                  rows="2"
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onCompositionStart={() => {
-                    composerIsComposing.current = true;
+                <form
+                  className="composer"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void send();
                   }}
-                  onCompositionEnd={() => {
-                    composerIsComposing.current = false;
-                  }}
-                  onPaste={pasteComposer}
-                  onKeyDown={(event) => {
-                    if (
-                      shouldSubmitComposerKey(
-                        event.nativeEvent || event,
-                        composerIsComposing.current,
-                      )
-                    ) {
-                      event.preventDefault();
-                      event.currentTarget.form?.requestSubmit();
+                >
+                  {attachments.length > 0 && (
+                    <div className="attachment-list" aria-label="Attached images">
+                      {attachments.map((file, index) => (
+                        <span key={`${file.name}-${file.lastModified}-${index}`}>
+                          <Paperclip />
+                          <span>{file.name}</span>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${file.name}`}
+                            onClick={() =>
+                              setAttachments((items) =>
+                                items.filter((_, itemIndex) => itemIndex !== index),
+                              )
+                            }
+                          >
+                            <X />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <textarea
+                    ref={composerInput}
+                    rows="2"
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onCompositionStart={() => {
+                      composerIsComposing.current = true;
+                    }}
+                    onCompositionEnd={() => {
+                      composerIsComposing.current = false;
+                    }}
+                    onPaste={pasteComposer}
+                    onKeyDown={(event) => {
+                      if (
+                        shouldSubmitComposerKey(
+                          event.nativeEvent || event,
+                          composerIsComposing.current,
+                        )
+                      ) {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    placeholder={
+                      hasActiveSessions
+                        ? "A task is running — this will be queued for when it finishes…"
+                        : "Describe what you want to build or change…"
                     }
-                  }}
-                  placeholder="Describe what you want to build or change…"
-                />
-                <div className="composer-actions">
-                  <div>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      title="Attach an image"
-                      aria-label="Attach an image"
-                      onClick={() => fileInput.current?.click()}
-                    >
-                      <Paperclip />
-                    </button>
-                    <input
-                      ref={fileInput}
-                      hidden
-                      type="file"
-                      accept={IMAGE_MIME_TYPES.join(",")}
-                      multiple
-                      onChange={(event) => {
-                        addImageFiles(event.target.files);
-                        event.target.value = "";
-                      }}
-                    />
-                    <div ref={modeControl} className="mode-control">
+                  />
+                  <div className="composer-actions">
+                    <div>
                       <button
                         type="button"
-                        className="mode-button"
-                        aria-label={`Execution mode: ${activeSolo ? `only ${activeSolo}` : mode}`}
-                        aria-haspopup="menu"
-                        aria-expanded={modeMenuOpen}
-                        onClick={() => setModeMenuOpen((value) => !value)}
+                        className="icon-button"
+                        title="Attach an image"
+                        aria-label="Attach an image"
+                        onClick={() => fileInput.current?.click()}
                       >
-                        {activeSolo ? <Cpu weight="fill" /> : <Sparkle weight="fill" />}
-                        {activeSolo
-                          ? `Only One · ${SOLO_AGENT_LABELS[activeSolo]}`
-                          : mode === "auto"
-                            ? "Auto"
-                            : "Manual"}
-                        <CaretDown />
+                        <Paperclip />
                       </button>
-                      {modeMenuOpen && (
-                        <div className="mode-menu" role="menu" aria-label="Execution mode">
-                          <button
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={!activeSolo && mode === "auto"}
-                            onClick={() => chooseExecutionMode("auto")}
-                          >
-                            <Sparkle weight="fill" />
-                            <span>
-                              <strong>Auto</strong>
-                              <small>Preview, then start workers.</small>
-                            </span>
-                            {!activeSolo && mode === "auto" && <CheckCircle weight="fill" />}
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={!activeSolo && mode === "manual"}
-                            onClick={() => chooseExecutionMode("manual")}
-                          >
-                            <Info />
-                            <span>
-                              <strong>Manual</strong>
-                              <small>Wait for approval after preview.</small>
-                            </span>
-                            {!activeSolo && mode === "manual" && <CheckCircle weight="fill" />}
-                          </button>
-                          {soloOptions.length > 0 && (
-                            <div className="mode-menu-group" role="group" aria-label="Only One">
-                              <span className="mode-menu-label">
-                                <Cpu weight="fill" />
-                                <span>
-                                  <strong>Only One</strong>
-                                  <small>Pin one CLI to plan and run alone.</small>
-                                </span>
+                      <input
+                        ref={fileInput}
+                        hidden
+                        type="file"
+                        accept={IMAGE_MIME_TYPES.join(",")}
+                        multiple
+                        onChange={(event) => {
+                          addImageFiles(event.target.files);
+                          event.target.value = "";
+                        }}
+                      />
+                      <div ref={modeControl} className="mode-control">
+                        <button
+                          type="button"
+                          className="mode-button"
+                          aria-label={`Execution mode: ${activeSolo ? `only ${activeSolo}` : mode}`}
+                          aria-haspopup="menu"
+                          aria-expanded={modeMenuOpen}
+                          onClick={() => setModeMenuOpen((value) => !value)}
+                        >
+                          {activeSolo ? <Cpu weight="fill" /> : <Sparkle weight="fill" />}
+                          {activeSolo
+                            ? `Only One · ${SOLO_AGENT_LABELS[activeSolo]}`
+                            : mode === "auto"
+                              ? "Auto"
+                              : "Manual"}
+                          <CaretDown />
+                        </button>
+                        {modeMenuOpen && (
+                          <div className="mode-menu" role="menu" aria-label="Execution mode">
+                            <button
+                              type="button"
+                              role="menuitemradio"
+                              aria-checked={!activeSolo && mode === "auto"}
+                              onClick={() => chooseExecutionMode("auto")}
+                            >
+                              <Sparkle weight="fill" />
+                              <span>
+                                <strong>Auto</strong>
+                                <small>Preview, then start workers.</small>
                               </span>
-                              {soloOptions.map((option) => (
-                                <button
-                                  key={option.name}
-                                  type="button"
-                                  role="menuitemradio"
-                                  className="mode-menu-nested"
-                                  aria-checked={activeSolo === option.name}
-                                  onClick={() => chooseSoloAgent(option.name)}
-                                >
-                                  <span
-                                    className="agent-dot"
-                                    style={{ background: AGENT_COLORS[option.name] }}
-                                    aria-hidden="true"
-                                  />
+                              {!activeSolo && mode === "auto" && <CheckCircle weight="fill" />}
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitemradio"
+                              aria-checked={!activeSolo && mode === "manual"}
+                              onClick={() => chooseExecutionMode("manual")}
+                            >
+                              <Info />
+                              <span>
+                                <strong>Manual</strong>
+                                <small>Wait for approval after preview.</small>
+                              </span>
+                              {!activeSolo && mode === "manual" && <CheckCircle weight="fill" />}
+                            </button>
+                            {soloOptions.length > 0 && (
+                              <div className="mode-menu-group" role="group" aria-label="Only One">
+                                <span className="mode-menu-label">
+                                  <Cpu weight="fill" />
                                   <span>
-                                    <strong>{option.label}</strong>
+                                    <strong>Only One</strong>
+                                    <small>Pin one CLI to plan and run alone.</small>
                                   </span>
-                                  {activeSolo === option.name && <CheckCircle weight="fill" />}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                                </span>
+                                {soloOptions.map((option) => (
+                                  <button
+                                    key={option.name}
+                                    type="button"
+                                    role="menuitemradio"
+                                    className="mode-menu-nested"
+                                    aria-checked={activeSolo === option.name}
+                                    onClick={() => chooseSoloAgent(option.name)}
+                                  >
+                                    <span
+                                      className="agent-dot"
+                                      style={{ background: AGENT_COLORS[option.name] }}
+                                      aria-hidden="true"
+                                    />
+                                    <span>
+                                      <strong>{option.label}</strong>
+                                    </span>
+                                    {activeSolo === option.name && <CheckCircle weight="fill" />}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                    <button
+                      type="submit"
+                      className="send-button"
+                      disabled={!draft.trim() || submitting}
+                      aria-label={submitting ? "Creating session" : "Send task"}
+                    >
+                      <span>{submitting ? "Creating…" : "Send"}</span>
+                      {submitting ? <ClockCounterClockwise /> : <ArrowUp weight="bold" />}
+                    </button>
                   </div>
-                  <button
-                    type="submit"
-                    className="send-button"
-                    disabled={!draft.trim() || submitting}
-                    aria-label={submitting ? "Creating session" : "Send task"}
-                  >
-                    <span>{submitting ? "Creating…" : "Send"}</span>
-                    {submitting ? <ClockCounterClockwise /> : <ArrowUp weight="bold" />}
-                  </button>
-                </div>
-                <div className="composer-hint">
-                  <span>
-                    <kbd>Enter</kbd> send · <kbd>Shift Enter</kbd> new line · <kbd>⌘ V</kbd> paste
-                    image
-                  </span>
-                </div>
-              </form>
+                  <div className="composer-hint">
+                    <span>
+                      <kbd>Enter</kbd> send · <kbd>Shift Enter</kbd> new line · <kbd>⌘ V</kbd> paste
+                      image
+                    </span>
+                  </div>
+                </form>
+              </div>
               {error && (
                 <div className="composer-error" role="alert">
                   {error}

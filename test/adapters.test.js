@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentInvocation, strategistInvocation } from "../src/adapters.js";
+import { agentInvocation, resumeInvocation, strategistInvocation } from "../src/adapters.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 
 const input = {
@@ -88,4 +88,57 @@ test("Codex strategist uses a read-only sandbox and output schema", () => {
   assert.ok(invocation.args.includes("--output-schema"));
   assert.ok(invocation.args.includes("/tmp/plan.schema.json"));
   assert.ok(invocation.args.includes("--image"));
+});
+
+test("Claude resume continues the original session id without shell interpolation", () => {
+  const invocation = resumeInvocation("claude", {
+    nativeSessionId: "e4e1f53f-e3b8-49b7-8bb4-9cbb18034e88",
+    prompt: "Continue $(whoami) safely",
+    mode: "write",
+    workspace: "/tmp/worktree",
+    config: DEFAULT_CONFIG,
+  });
+  assert.equal(invocation.command, "claude");
+  assert.deepEqual(
+    invocation.args.slice(invocation.args.indexOf("--resume"), invocation.args.indexOf("--resume") + 2),
+    ["--resume", "e4e1f53f-e3b8-49b7-8bb4-9cbb18034e88"],
+  );
+  assert.ok(invocation.args.includes("auto"));
+  assert.equal(invocation.args[invocation.args.indexOf("-p") + 1], "Continue $(whoami) safely");
+});
+
+test("Codex resume uses the exec resume subcommand with the workspace sandbox", () => {
+  const invocation = resumeInvocation("codex", {
+    nativeSessionId: "019c4c41-065c-7b41-be73-13bfa3e77e81",
+    prompt: "Keep going",
+    mode: "write",
+    workspace: "/tmp/worktree",
+    config: DEFAULT_CONFIG,
+  });
+  assert.equal(invocation.command, "codex");
+  assert.deepEqual(invocation.args.slice(0, 3), ["exec", "resume", "019c4c41-065c-7b41-be73-13bfa3e77e81"]);
+  assert.ok(invocation.args.includes("workspace-write"));
+  assert.equal(invocation.args.at(-1), "Keep going");
+});
+
+test("Claude resume in read-only mode plans instead of writing", () => {
+  const invocation = resumeInvocation("claude", {
+    nativeSessionId: "id",
+    prompt: "review",
+    mode: "read-only",
+    workspace: "/tmp/worktree",
+    config: DEFAULT_CONFIG,
+  });
+  assert.ok(invocation.args.includes("plan"));
+});
+
+test("Resume rejects a missing session id and unsupported agents", () => {
+  assert.throws(
+    () => resumeInvocation("claude", { prompt: "x", mode: "write", config: DEFAULT_CONFIG }),
+    /nativeSessionId is required/,
+  );
+  assert.throws(
+    () => resumeInvocation("copilot", { nativeSessionId: "id", prompt: "x", mode: "write", config: DEFAULT_CONFIG }),
+    /native resume is not supported/,
+  );
 });
