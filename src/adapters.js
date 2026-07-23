@@ -160,6 +160,54 @@ export function strategistInvocation(agent, {
   return agentInvocation(agent, { prompt, mode: "read-only", workspace, config, attachments });
 }
 
+// Continue an existing native CLI conversation by its own session id. Used to
+// resume Claude/Codex transcripts that were imported from the user's machine, so
+// the follow-up runs against the original history rather than a fresh session.
+export function resumeInvocation(agent, { nativeSessionId, prompt, mode, workspace, config }) {
+  const definition = config.agents[agent];
+  if (!definition) throw new Error(`agent is not configured: ${agent}`);
+  if (!nativeSessionId) throw new Error("nativeSessionId is required to resume a session");
+  const extra = Array.isArray(definition.extraArgs) ? definition.extraArgs : [];
+
+  if (agent === "claude") {
+    return {
+      command: definition.command,
+      args: [
+        "-p",
+        prompt,
+        "--resume",
+        nativeSessionId,
+        "--output-format",
+        "text",
+        "--permission-mode",
+        mode === "read-only" ? "plan" : "auto",
+        ...extra,
+      ],
+    };
+  }
+
+  if (agent === "codex") {
+    return {
+      command: definition.command,
+      args: [
+        "exec",
+        "resume",
+        nativeSessionId,
+        "--sandbox",
+        mode === "read-only" ? "read-only" : "workspace-write",
+        "--color",
+        "never",
+        "-C",
+        workspace,
+        ...extra,
+        prompt,
+      ],
+    };
+  }
+
+  throw new Error(`native resume is not supported for agent: ${agent}`);
+}
+
 // Interactive (PTY) invocation for a worker that may pause to ask the user.
 // Returns null when interactive mode is not yet supported for the agent, so
 // the orchestrator falls back to the non-interactive pipe path.

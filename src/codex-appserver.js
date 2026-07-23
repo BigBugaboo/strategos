@@ -54,6 +54,7 @@ export async function runCodexAppServer({
   signal,
   timeoutMs = 0,
   onPrompt,
+  onSteer,
   task,
   version = "0.0.0",
 }) {
@@ -64,6 +65,26 @@ export async function runCodexAppServer({
   let nextId = 1;
   let settled = false;
   let timer;
+  let threadId = null;
+  let activeTurnId = null;
+  let unregisterSteer = null;
+
+  // Inject user guidance into the in-flight turn. Requires an active turn whose
+  // id matches Codex's `expectedTurnId` precondition; returns false otherwise.
+  const steer = async (text) => {
+    const guidance = String(text || "").trim();
+    if (!guidance || !threadId || !activeTurnId) return false;
+    try {
+      await request("turn/steer", {
+        threadId,
+        input: [{ type: "text", text: guidance, text_elements: [] }],
+        expectedTurnId: activeTurnId,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   const request = (method, params) => {
     const id = nextId;
@@ -78,6 +99,12 @@ export async function runCodexAppServer({
     const finish = (extra = {}) => {
       if (settled) return;
       settled = true;
+      activeTurnId = null;
+      try {
+        unregisterSteer?.();
+      } catch {
+        // registry may already be gone
+      }
       if (timer) clearTimeout(timer);
       if (signal) signal.removeEventListener("abort", onAbort);
       try {
@@ -142,7 +169,9 @@ export async function runCodexAppServer({
         return;
       }
       // Notification.
-      if (message.method === "item/completed") {
+      if (message.method === "turn/started") {
+        activeTurnId = message.params?.turn?.id || activeTurnId;
+      } else if (message.method === "item/completed") {
         const item = message.params?.item;
         if (item?.type === "agentMessage" || item?.type === "agent_message") {
           const text = item.text || textOfContent(item.content);
@@ -162,8 +191,11 @@ export async function runCodexAppServer({
           capabilities: null,
         });
         const started = await request("thread/start", { cwd, sandbox, approvalPolicy });
-        const threadId = started?.thread?.id;
+        threadId = started?.thread?.id;
         if (!threadId) throw new Error("codex did not return a thread id");
+        // Expose live steering now that the thread exists; the orchestrator
+        // routes user guidance here to inject it into the running turn.
+        unregisterSteer = onSteer?.(steer) || null;
         await request("turn/start", {
           threadId,
           input: [{ type: "text", text: prompt, text_elements: [] }],

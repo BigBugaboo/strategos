@@ -53,6 +53,28 @@ function memorySessionStore(repository, initial = []) {
     async appendEvent(session, event) {
       return this.update(session, { events: [...(session.events || []), event] });
     },
+    async importSession({ source, descriptor }) {
+      sequence += 1;
+      const session = {
+        id: `session-${sequence}`,
+        repository,
+        goal: descriptor.title,
+        strategist: source,
+        workerAgents: [source],
+        soloAgent: source,
+        status: "imported",
+        attempts: 1,
+        events: [],
+        imported: {
+          source,
+          nativeSessionId: descriptor.nativeSessionId,
+          cwd: descriptor.cwd || null,
+          title: descriptor.title || null,
+        },
+      };
+      sessions.set(session.id, session);
+      return session;
+    },
   };
 }
 
@@ -131,6 +153,8 @@ async function fixture(t, overrides = {}) {
       };
     }),
     runPlanFn: overrides.runPlanFn,
+    scanNativeSessionsFn: overrides.scanNativeSessionsFn,
+    runCommandFn: overrides.runCommandFn,
   });
   t.after(async () => {
     result.server.closeAllConnections();
@@ -614,4 +638,133 @@ test("Web relays an interactive worker prompt answer back to the run", async (t)
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(answered, "yes");
+});
+
+test("lists native CLI sessions and imports the selected ones without duplicates", async (t) => {
+  const descriptors = [
+    {
+      id: "claude-abc",
+      source: "claude",
+      nativeSessionId: "abc",
+      title: "Login form",
+      preview: "Add a login form",
+      cwd: "/Users/dev/app",
+      gitBranch: "feature/login",
+      cliVersion: null,
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-21T00:00:00.000Z",
+      matchesProject: true,
+    },
+    {
+      id: "codex-def",
+      source: "codex",
+      nativeSessionId: "def",
+      title: "Refactor parser",
+      preview: "Refactor the parser",
+      cwd: "/Users/dev/other",
+      gitBranch: null,
+      cliVersion: "0.98.0",
+      createdAt: "2026-07-19T00:00:00.000Z",
+      updatedAt: "2026-07-19T00:00:00.000Z",
+      matchesProject: false,
+    },
+  ];
+  const { url } = await fixture(t, {
+    scanNativeSessionsFn: async () => descriptors.map((descriptor) => ({ ...descriptor })),
+  });
+
+  const listBody = await (await fetch(`${url}/api/native-sessions`)).json();
+  assert.equal(listBody.sessions.length, 2);
+  assert.equal(listBody.sessions.every((session) => session.alreadyImported === false), true);
+  assert.equal(listBody.sessions[0].transcriptPath, undefined);
+
+  const importResponse = await fetch(`${url}/api/native-sessions/import`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids: ["claude-abc"] }),
+  });
+  assert.equal(importResponse.status, 200);
+  const importBody = await importResponse.json();
+  assert.equal(importBody.imported.length, 1);
+  assert.equal(importBody.imported[0].imported.source, "claude");
+  assert.equal(importBody.imported[0].imported.nativeSessionId, "abc");
+  assert.equal(importBody.imported[0].status, "imported");
+
+  const relisted = await (await fetch(`${url}/api/native-sessions`)).json();
+  const claudeItem = relisted.sessions.find((session) => session.id === "claude-abc");
+  assert.equal(claudeItem.alreadyImported, true);
+
+  const reimport = await (await fetch(`${url}/api/native-sessions/import`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids: ["claude-abc", "unknown-id"] }),
+  })).json();
+  assert.equal(reimport.imported.length, 0);
+  assert.deepEqual(
+    reimport.skipped.map((entry) => entry.reason).sort(),
+    ["already imported", "not found"],
+  );
+});
+
+test("resuming an imported session runs the native CLI resume", async (t) => {
+  const descriptors = [
+    {
+      id: "codex-def",
+      source: "codex",
+      nativeSessionId: "def",
+      title: "Refactor parser",
+      preview: "Refactor the parser",
+      cwd: null,
+      gitBranch: null,
+      cliVersion: "0.98.0",
+      createdAt: "2026-07-19T00:00:00.000Z",
+      updatedAt: "2026-07-19T00:00:00.000Z",
+      matchesProject: false,
+    },
+  ];
+  const commands = [];
+  const { url, root } = await fixture(t, {
+    scanNativeSessionsFn: async () => descriptors.map((descriptor) => ({ ...descriptor })),
+    runCommandFn: async (command, args, options) => {
+      commands.push({ command, args, cwd: options.cwd });
+      return { stdout: "Continued the parser refactor.", stderr: "", code: 0 };
+    },
+  });
+
+  const imported = await (await fetch(`${url}/api/native-sessions/import`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids: ["codex-def"] }),
+  })).json();
+  const sessionId = imported.imported[0].id;
+
+  const missingPrompt = await fetch(`${url}/api/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(missingPrompt.status, 400);
+
+  const resume = await fetch(`${url}/api/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ goal: "Keep going" }),
+  });
+  assert.equal(resume.status, 202);
+
+  let finished = null;
+  for (let attempt = 0; attempt < 100 && !finished; attempt += 1) {
+    const body = await (await fetch(`${url}/api/sessions/${sessionId}`)).json();
+    finished = (body.events || []).find((event) => event.type === "native_resume_finished");
+    if (!finished) await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(finished, "native resume should record a finished event");
+  assert.equal(finished.report, "Continued the parser refactor.");
+  assert.equal(commands.length, 1);
+  // The invoked command binary comes from config.agents; the fixture leaves it
+  // unset, so assert the meaningful part: the native `exec resume <id>` shape.
+  assert.deepEqual(commands[0].args.slice(0, 3), ["exec", "resume", "def"]);
+  assert.equal(commands[0].args.at(-1), "Keep going");
+  // With no original cwd the resume falls back to the project root.
+  assert.equal(commands[0].cwd, root);
 });

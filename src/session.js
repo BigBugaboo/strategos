@@ -10,6 +10,7 @@ const RESUMABLE_STATUSES = new Set([
   "running",
   "failed",
   "interrupted",
+  "imported",
 ]);
 const MAX_EVENTS = 50;
 
@@ -54,6 +55,11 @@ function compactEvent(event, at) {
   if (event.strategist) saved.strategist = event.strategist;
   if (event.workerAgents) saved.workerAgents = event.workerAgents;
   if (event.manifest) saved.runStatus = event.manifest.status;
+  if (event.source) saved.source = event.source;
+  if (event.note) saved.note = truncateText(String(event.note), 2_000);
+  if (event.report) saved.report = truncateText(String(event.report), 8_000);
+  if (typeof event.exitCode === "number") saved.exitCode = event.exitCode;
+  if (event.error) saved.error = truncateText(String(event.error), 2_000);
   if (event.task) {
     saved.task = {
       id: event.task.id,
@@ -159,6 +165,57 @@ export function createSessionStore(root, options = {}) {
         runId: null,
         events: [],
         error: null,
+        createdAt,
+        updatedAt: createdAt,
+        finishedAt: null,
+      };
+      await writeAtomicJson(await fileFor(session.id), session);
+      return session;
+    },
+    // Adopt an existing native Claude/Codex transcript as a resumable Strategos
+    // session. The session is pinned to the source CLI so a resume continues the
+    // original conversation through that CLI's own history.
+    async importSession({ source, descriptor }) {
+      const createdAt = timestamp();
+      const session = {
+        version: 1,
+        id: idFactory(),
+        repository: root,
+        goal: (descriptor.title || `Imported ${source} session`).trim(),
+        strategist: source,
+        workerAgents: [source],
+        executionMode: "auto",
+        soloAgent: source,
+        attachments: [],
+        status: "imported",
+        attempts: 1,
+        plan: null,
+        runId: null,
+        events: [
+          compactEvent(
+            {
+              type: "native_imported",
+              source,
+              note: descriptor.preview || descriptor.title || "",
+            },
+            createdAt,
+          ),
+        ],
+        error: null,
+        imported: {
+          source,
+          nativeSessionId: descriptor.nativeSessionId,
+          cwd: descriptor.cwd || null,
+          gitBranch: descriptor.gitBranch || null,
+          cliVersion: descriptor.cliVersion || null,
+          title: descriptor.title || null,
+          preview: descriptor.preview || null,
+          transcriptPath: descriptor.transcriptPath || null,
+          originalCreatedAt: descriptor.createdAt || null,
+          originalUpdatedAt: descriptor.updatedAt || null,
+          importedAt: createdAt,
+          lastResumedAt: null,
+        },
         createdAt,
         updatedAt: createdAt,
         finishedAt: null,

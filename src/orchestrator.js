@@ -148,7 +148,7 @@ async function prepareTask({
   }
 }
 
-async function executePreparedTask(prepared, config, signal, onPrompt) {
+async function executePreparedTask(prepared, config, signal, onPrompt, onSteer) {
   if (prepared.status === "failed") return prepared;
   const timeoutMs = config.taskTimeoutMinutes * 60_000;
   const env = {
@@ -177,6 +177,7 @@ async function executePreparedTask(prepared, config, signal, onPrompt) {
       signal,
       timeoutMs,
       onPrompt,
+      onSteer,
       task: { id: prepared.id, agent: prepared.agent },
     });
     result = { stdout: codexResult.report || "", stderr: codexResult.error || "", code: codexResult.code, aborted: codexResult.aborted, timedOut: codexResult.timedOut, error: null };
@@ -254,6 +255,7 @@ export async function runPlan({
   maxParallel,
   onEvent = () => {},
   onPrompt,
+  onSteer,
   sessionIdFactory = () => crypto.randomUUID(),
   signal,
 }) {
@@ -369,7 +371,7 @@ export async function runPlan({
       if (task.status !== "failed") await emit({ type: "task_started", task });
     }
     const batch = await Promise.all(
-      prepared.map((task) => executePreparedTask(task, config, signal, onPrompt)),
+      prepared.map((task) => executePreparedTask(task, config, signal, onPrompt, onSteer)),
     );
     for (const result of batch) {
       results.set(result.id, result);
