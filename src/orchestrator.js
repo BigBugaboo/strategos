@@ -6,6 +6,7 @@ import { materializeAttachments } from "./attachments.js";
 import { buildTaskPrompt, collectContext } from "./context.js";
 import { runInteractiveTask } from "./interactive.js";
 import { runCodexAppServer } from "./codex-appserver.js";
+import { runClaudeInteractive } from "./claude-interactive.js";
 import {
   assertCleanRepo,
   captureWorktreeChanges,
@@ -160,13 +161,32 @@ async function executePreparedTask(prepared, config, signal, onPrompt, onSteer) 
     STRATEGOS_WORKTREE: prepared.worktree,
   };
   // Interactive mode (opt-in) lets a worker pause to ask the user. Codex uses
-  // its structured app-server protocol (plain pipes); other CLIs fall back to a
-  // PTY, which needs node-pty. Both surface prompts through `onPrompt`.
+  // its app-server protocol and Claude its stream-json permission tool (both
+  // plain pipes); other CLIs fall back to a PTY, which needs node-pty. All
+  // surface tool-permission prompts through `onPrompt`.
   const interactiveEnabled = Boolean(config.interactive && onPrompt);
   const useCodexAppServer = interactiveEnabled && prepared.agent === "codex";
-  const usePty = interactiveEnabled && !useCodexAppServer && prepared.interactiveInvocation && (await ptyAvailable());
+  const useClaudeInteractive = interactiveEnabled && prepared.agent === "claude";
+  const usePty =
+    interactiveEnabled &&
+    !useCodexAppServer &&
+    !useClaudeInteractive &&
+    prepared.interactiveInvocation &&
+    (await ptyAvailable());
   let result;
-  if (useCodexAppServer) {
+  if (useClaudeInteractive) {
+    const claudeResult = await runClaudeInteractive({
+      command: prepared.invocation.command,
+      prompt: prepared.prompt,
+      cwd: prepared.worktree,
+      env,
+      signal,
+      timeoutMs,
+      onPrompt,
+      task: { id: prepared.id, agent: prepared.agent },
+    });
+    result = { stdout: claudeResult.report || "", stderr: claudeResult.error || "", code: claudeResult.code, aborted: claudeResult.aborted, timedOut: claudeResult.timedOut, error: null };
+  } else if (useCodexAppServer) {
     const codexResult = await runCodexAppServer({
       command: prepared.invocation.command,
       prompt: prepared.prompt,
