@@ -622,8 +622,10 @@ function ProjectContextBar({
   onSelectProject,
   onSelectBranch,
   onAdd,
+  onRemove,
 }) {
   const [menu, setMenu] = useState(null);
+  const [removing, setRemoving] = useState("");
   const [adding, setAdding] = useState(false);
   const [projectPath, setProjectPath] = useState("");
   const [message, setMessage] = useState("");
@@ -678,6 +680,19 @@ function ProjectContextBar({
     setMenu(null);
     setAdding(false);
     setMessage("");
+  };
+
+  const removeProject = async (project) => {
+    if (removing) return;
+    setRemoving(project.path);
+    setMessage("");
+    try {
+      await onRemove(project.path);
+    } catch (requestError) {
+      setMessage(requestError.message);
+    } finally {
+      setRemoving("");
+    }
   };
 
   // Reset the branch search whenever the branch menu is not open.
@@ -789,21 +804,35 @@ function ProjectContextBar({
             {projects.map((project) => {
               const current = project.path === repository.path;
               return (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={current}
-                  disabled={disabled || project.unavailable}
-                  key={project.path}
-                  onClick={() => void chooseProject(project).catch(() => {})}
-                >
-                  <FolderOpen weight={current ? "fill" : "regular"} />
-                  <span>
-                    <strong>{project.name}</strong>
-                    <small>{project.unavailable ? "Unavailable" : shortPath(project.path)}</small>
-                  </span>
-                  {current && <CheckCircle weight="fill" />}
-                </button>
+                <div className="project-context-option-row" key={project.path}>
+                  <button
+                    type="button"
+                    className="project-context-option"
+                    role="menuitemradio"
+                    aria-checked={current}
+                    disabled={disabled || project.unavailable}
+                    onClick={() => void chooseProject(project).catch(() => {})}
+                  >
+                    <FolderOpen weight={current ? "fill" : "regular"} />
+                    <span>
+                      <strong>{project.name}</strong>
+                      <small>{project.unavailable ? "Unavailable" : shortPath(project.path)}</small>
+                    </span>
+                    {current && <CheckCircle weight="fill" />}
+                  </button>
+                  {!current && (
+                    <button
+                      type="button"
+                      className="project-context-option-remove"
+                      aria-label={`Remove ${project.name}`}
+                      title="Remove from workspace"
+                      disabled={disabled || removing === project.path}
+                      onClick={() => void removeProject(project)}
+                    >
+                      <X />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -2283,6 +2312,22 @@ export function App() {
     await selectProject(result.project.path);
   };
 
+  const removeProject = async (targetPath) => {
+    await api("/api/projects", { method: "DELETE", body: JSON.stringify({ path: targetPath }) });
+    setExpandedProjects((current) => {
+      const next = new Set(current);
+      next.delete(targetPath);
+      return next;
+    });
+    setData((current) => ({
+      ...current,
+      projects: (current.projects || []).filter((project) => project.path !== targetPath),
+      sessionGroups: (current.sessionGroups || sidebarGroupsFor(current)).filter(
+        (group) => group.path !== targetPath,
+      ),
+    }));
+  };
+
   const selectSession = (session) => {
     setSelectedId(session.id);
     setView("chat");
@@ -2768,6 +2813,7 @@ export function App() {
                   onSelectProject={selectProject}
                   onSelectBranch={setSelectedBranch}
                   onAdd={addProject}
+                  onRemove={removeProject}
                 />
               )}
               <div className="composer-row">
