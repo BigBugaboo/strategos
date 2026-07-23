@@ -631,6 +631,12 @@ export function createWebApplication(options) {
         sendJson(response, 201, { project, projects: await projectRegistry.list() });
         return;
       }
+      if (request.method === "DELETE" && pathname === "/api/projects") {
+        const input = await readJsonBody(request);
+        const project = await projectRegistry.remove(input.path);
+        sendJson(response, 200, { project, projects: await projectRegistry.list() });
+        return;
+      }
       const projectHeader = request.headers["x-strategos-project"];
       const selectedProject = typeof projectHeader === "string"
         ? decodeURIComponent(projectHeader)

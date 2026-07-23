@@ -73,6 +73,25 @@ export function createProjectRegistry(options) {
       return publicProject(projectPath);
     },
 
+    async remove(inputPath) {
+      if (typeof inputPath !== "string" || !inputPath.trim()) {
+        throw Object.assign(new Error("project path is required"), { status: 400 });
+      }
+      let projectPath = path.resolve(inputPath.trim());
+      try {
+        projectPath = path.resolve(await findRepoRootFn(projectPath));
+      } catch {
+        // The repository may be gone; remove the path as given.
+      }
+      if (projectPath === initialRoot) {
+        throw Object.assign(new Error("the launch project cannot be removed"), { status: 400 });
+      }
+      await load();
+      projectPaths.delete(projectPath);
+      await persist();
+      return publicProject(projectPath);
+    },
+
     async resolve(inputPath) {
       const requested = path.resolve(inputPath || initialRoot);
       const paths = await load();

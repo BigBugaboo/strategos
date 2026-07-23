@@ -1277,7 +1277,15 @@ input:focus-visible {
   max-height: 260px;
   overflow-y: auto;
 }
-.project-context-options > button {
+.project-context-option-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.project-context-options > button,
+.project-context-option {
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: 19px minmax(0, 1fr) 17px;
   align-items: center;
@@ -1291,18 +1299,42 @@ input:focus-visible {
   cursor: pointer;
 }
 .project-context-options > button:hover,
-.project-context-options > button[aria-checked="true"] {
+.project-context-option:hover,
+.project-context-options > button[aria-checked="true"],
+.project-context-option[aria-checked="true"] {
   background: #1b2837;
   color: #edf1f5;
 }
-.project-context-options > button:disabled {
+.project-context-options > button:disabled,
+.project-context-option:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
-.project-context-options > button > span {
+.project-context-options > button > span,
+.project-context-option > span {
   min-width: 0;
   display: grid;
   gap: 2px;
+}
+.project-context-option-remove {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6d7887;
+  cursor: pointer;
+}
+.project-context-option-remove:hover {
+  background: #3a2230;
+  color: #ff938d;
+}
+.project-context-option-remove svg {
+  width: 14px;
+  height: 14px;
 }
 .project-context-menu strong,
 .project-context-menu small {
@@ -1318,11 +1350,13 @@ input:focus-visible {
   color: #748192;
   font-size: 9px;
 }
-.project-context-options > button > svg {
+.project-context-options > button > svg,
+.project-context-option > svg {
   width: 16px;
   height: 16px;
 }
-.project-context-options > button > svg:last-child {
+.project-context-options > button > svg:last-child,
+.project-context-option > svg:last-child {
   color: #66d58a;
 }
 .project-context-menu-footer {

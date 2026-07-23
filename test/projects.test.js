@@ -27,4 +27,14 @@ test("project registry validates, persists, and resolves Git repository paths", 
   });
   await assert.rejects(() => registry.add(path.join(directory, "missing")), /Git repository/);
   await assert.rejects(() => registry.resolve(path.join(directory, "unregistered")), /not registered/);
+
+  // Remove drops a registered project and rejects removing the launch root.
+  assert.deepEqual(await registry.remove(nested), { name: "beta", path: secondRoot });
+  assert.deepEqual(await registry.list(), [{ name: "alpha", path: initialRoot }]);
+  assert.deepEqual(JSON.parse(await fs.readFile(file, "utf8")), {
+    version: 1,
+    projects: [initialRoot],
+  });
+  await assert.rejects(() => registry.remove(initialRoot), /launch project cannot be removed/);
+  await assert.rejects(() => registry.resolve(secondRoot), /not registered/);
 });
