@@ -214,6 +214,7 @@ function SessionSidebar({
   onSelectProject,
   onSelectSession,
   onTogglePin,
+  onRemove,
   onManage,
 }) {
   return (
@@ -254,6 +255,17 @@ function SessionSidebar({
                 </span>
                 <em>{sessions.length}</em>
               </button>
+              {!current && (
+                <button
+                  type="button"
+                  className="project-group-remove"
+                  aria-label={`Remove ${group.name}`}
+                  title="Remove from workspace"
+                  onClick={() => void onRemove(group.path).catch(() => {})}
+                >
+                  <X />
+                </button>
+              )}
               {expanded && (
                 <div className="group-session-list">
                   {sessions.length ? (
@@ -2760,6 +2772,7 @@ export function App() {
             onSelectProject={selectProject}
             onSelectSession={selectGroupedSession}
             onTogglePin={togglePin}
+            onRemove={removeProject}
             onManage={() => {
               setSessionManagerOpen(true);
               setModeMenuOpen(false);

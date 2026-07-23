@@ -1,6 +1,6 @@
 {
   "name": "strategos-cli",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "description": "Local-first orchestration for Claude Code, Codex CLI, and GitHub Copilot CLI.",
   "type": "module",
   "bin": {
