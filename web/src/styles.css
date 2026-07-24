@@ -1217,6 +1217,16 @@ input:focus-visible {
   color: #707b8a;
   font-size: 10px;
 }
+.workflow-task > div > .workflow-task-failover {
+  width: fit-content;
+  margin-top: 5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #2a2340;
+  color: #c3b4ff;
+  font-size: 9px;
+  white-space: nowrap;
+}
 .workflow-task > div > p:not(.worker-error) {
   margin-top: 5px !important;
   color: #8e99a7 !important;

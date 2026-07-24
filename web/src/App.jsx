@@ -156,6 +156,9 @@ function eventText(event) {
   if (event.type === "run_finished") {
     return `Strategos: Run ${event.manifest?.status || event.status || "finished"}`;
   }
+  if (event.type === "task_failover") {
+    return `${event.from} ran out of quota — handing ${event.task?.id || "the task"} to ${event.to}`;
+  }
   if (event.type === "guidance_added") return `You (guidance): ${event.text}`;
   if (event.type === "native_imported") {
     return `Strategos: Imported ${event.source || "native"} session`;
@@ -1206,6 +1209,14 @@ function WorkflowTask({ task, waitingForInput }) {
           {(task.changedFiles?.length || 0) > 0 &&
             ` · ${task.changedFiles.length} file${task.changedFiles.length === 1 ? "" : "s"}`}
         </small>
+        {task.failoverFrom?.length > 0 && (
+          <small
+            className="workflow-task-failover"
+            title={`Handed off from ${task.failoverFrom.join(", ")} after quota ran out`}
+          >
+            ↳ from {task.failoverFrom.join(", ")}
+          </small>
+        )}
         {active && (
           <p>{waitingForInput ? "Waiting for your input…" : workerStepLabel(task.status)}</p>
         )}

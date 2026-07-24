@@ -56,6 +56,9 @@ function compactEvent(event, at) {
   if (event.workerAgents) saved.workerAgents = event.workerAgents;
   if (event.manifest) saved.runStatus = event.manifest.status;
   if (event.source) saved.source = event.source;
+  if (event.from) saved.from = event.from;
+  if (event.to) saved.to = event.to;
+  if (event.reason) saved.reason = event.reason;
   if (event.note) saved.note = truncateText(String(event.note), 2_000);
   if (event.report) saved.report = truncateText(String(event.report), 8_000);
   if (typeof event.exitCode === "number") saved.exitCode = event.exitCode;
