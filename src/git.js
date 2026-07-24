@@ -149,3 +149,58 @@ export async function createBranch(root, name, startPoint = "HEAD") {
   await git(root, ["branch", name, startPoint]);
   return name;
 }
+
+// Directories that never hold a user-facing sub-repo worth listing.
+const SUBREPO_SKIP = new Set([".git", "node_modules", ".strategos", ".strategos-worktrees"]);
+
+// Discover nested Git repositories inside a workspace project (up to two levels
+// deep, e.g. `repos/<name>`), excluding the workspace root itself. Returns each
+// with its path relative to the root and current branch.
+export async function listSubRepos(root, { maxDepth = 2 } = {}) {
+  const found = [];
+  const walk = async (dir, depth) => {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || SUBREPO_SKIP.has(entry.name) || entry.name.startsWith(".")) {
+        continue;
+      }
+      const child = path.join(dir, entry.name);
+      let isRepo = false;
+      try {
+        await fs.access(path.join(child, ".git"));
+        isRepo = true;
+      } catch {
+        isRepo = false;
+      }
+      if (isRepo) {
+        found.push(child);
+      } else if (depth < maxDepth) {
+        await walk(child, depth + 1);
+      }
+    }
+  };
+  await walk(root, 1);
+  found.sort();
+  return Promise.all(
+    found.map(async (repoPath) => ({
+      name: path.basename(repoPath),
+      relativePath: path.relative(root, repoPath),
+      branch: await currentBranch(repoPath).catch(() => "unknown"),
+    })),
+  );
+}
+
+export async function isRepoClean(root) {
+  const status = await git(root, ["status", "--porcelain"]);
+  return status.length === 0;
+}
+
+export async function switchBranch(root, branch) {
+  await git(root, ["switch", branch]);
+  return branch;
+}

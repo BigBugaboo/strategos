@@ -654,6 +654,10 @@ function ProjectContextBar({
   const [branchQuery, setBranchQuery] = useState("");
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [browsing, setBrowsing] = useState(false);
+  const [subRepos, setSubRepos] = useState(null);
+  const [reposOpen, setReposOpen] = useState(false);
+  const [repoSwitching, setRepoSwitching] = useState("");
+  const [repoError, setRepoError] = useState("");
   const control = useRef(null);
   const branch = selectedBranch || repository.branch || "Branch unavailable";
   const query = branchQuery.trim();
@@ -693,6 +697,42 @@ function ProjectContextBar({
       active = false;
     };
   }, [menu, branches]);
+
+  // Detect sub-repos of a workspace project so the "More repos" control can
+  // appear and expand into a per-repo branch switcher.
+  useEffect(() => {
+    let active = true;
+    setSubRepos(null);
+    setReposOpen(false);
+    setRepoError("");
+    api("/api/subrepos")
+      .then((result) => active && setSubRepos(result.subRepos || []))
+      .catch(() => active && setSubRepos([]));
+    return () => {
+      active = false;
+    };
+  }, [repository.path]);
+
+  const switchSubRepo = async (repo, nextBranch) => {
+    if (nextBranch === repo.branch || repoSwitching) return;
+    setRepoSwitching(repo.relativePath);
+    setRepoError("");
+    try {
+      await api("/api/subrepos/checkout", {
+        method: "POST",
+        body: JSON.stringify({ repo: repo.relativePath, branch: nextBranch }),
+      });
+      setSubRepos((list) =>
+        (list || []).map((item) =>
+          item.relativePath === repo.relativePath ? { ...item, branch: nextBranch } : item,
+        ),
+      );
+    } catch (requestError) {
+      setRepoError(`${repo.name}: ${requestError.message}`);
+    } finally {
+      setRepoSwitching("");
+    }
+  };
 
   const chooseProject = async (project) => {
     if (project.path !== repository.path) await onSelectProject(project.path);
@@ -777,199 +817,260 @@ function ProjectContextBar({
     }
   };
 
+  const hasSubRepos = Boolean(subRepos && subRepos.length);
   return (
-    <div ref={control} className="project-context-bar">
-      <button
-        type="button"
-        className="project-context-trigger"
-        aria-label={`Current project: ${repository.name}`}
-        aria-haspopup="menu"
-        aria-expanded={menu === "project"}
-        disabled={disabled}
-        onClick={() => {
-          setMenu((value) => (value === "project" ? null : "project"));
-          setAdding(false);
-          setMessage("");
-        }}
-      >
-        <FolderOpen />
-        <span>{repository.name}</span>
-        <CaretDown />
-      </button>
-      <span className="project-context-divider" aria-hidden="true" />
-      <span className="project-context-meta" title="Execution environment">
-        <Laptop />
-        <span>Local</span>
-      </span>
-      <span className="project-context-divider" aria-hidden="true" />
-      <button
-        type="button"
-        className="project-context-trigger branch"
-        aria-label={`Base branch: ${branch}`}
-        aria-haspopup="menu"
-        aria-expanded={menu === "branch"}
-        disabled={disabled}
-        title={`Agents branch new work from ${branch}`}
-        onClick={() => setMenu((value) => (value === "branch" ? null : "branch"))}
-      >
-        <GitBranch />
-        <span>{branch}</span>
-        <CaretDown />
-      </button>
-      {menu === "project" && (
-        <div className="project-context-menu">
-          <div className="project-context-menu-heading">Projects</div>
-          <div className="project-context-options" role="menu" aria-label="Select project">
-            {projects.map((project) => {
-              const current = project.path === repository.path;
-              return (
-                <div className="project-context-option-row" key={project.path}>
+    <>
+      <div ref={control} className="project-context-bar">
+        <button
+          type="button"
+          className="project-context-trigger"
+          aria-label={`Current project: ${repository.name}`}
+          aria-haspopup="menu"
+          aria-expanded={menu === "project"}
+          disabled={disabled}
+          onClick={() => {
+            setMenu((value) => (value === "project" ? null : "project"));
+            setAdding(false);
+            setMessage("");
+          }}
+        >
+          <FolderOpen />
+          <span>{repository.name}</span>
+          <CaretDown />
+        </button>
+        <span className="project-context-divider" aria-hidden="true" />
+        <span className="project-context-meta" title="Execution environment">
+          <Laptop />
+          <span>Local</span>
+        </span>
+        <span className="project-context-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className="project-context-trigger branch"
+          aria-label={`Base branch: ${branch}`}
+          aria-haspopup="menu"
+          aria-expanded={menu === "branch"}
+          disabled={disabled}
+          title={`Agents branch new work from ${branch}`}
+          onClick={() => setMenu((value) => (value === "branch" ? null : "branch"))}
+        >
+          <GitBranch />
+          <span>{branch}</span>
+          <CaretDown />
+        </button>
+        {hasSubRepos && (
+          <button
+            type="button"
+            className={`project-context-more ${reposOpen ? "active" : ""}`}
+            aria-expanded={reposOpen}
+            title="Configure the workspace's sub-repositories"
+            onClick={() => setReposOpen((value) => !value)}
+          >
+            <SidebarSimple />
+            <span>More repos</span>
+            <em>{subRepos.length}</em>
+            <CaretDown />
+          </button>
+        )}
+        {menu === "project" && (
+          <div className="project-context-menu">
+            <div className="project-context-menu-heading">Projects</div>
+            <div className="project-context-options" role="menu" aria-label="Select project">
+              {projects.map((project) => {
+                const current = project.path === repository.path;
+                return (
+                  <div className="project-context-option-row" key={project.path}>
+                    <button
+                      type="button"
+                      className="project-context-option"
+                      role="menuitemradio"
+                      aria-checked={current}
+                      disabled={disabled || project.unavailable}
+                      onClick={() => void chooseProject(project).catch(() => {})}
+                    >
+                      <FolderOpen weight={current ? "fill" : "regular"} />
+                      <span>
+                        <strong>{project.name}</strong>
+                        <small>
+                          {project.unavailable ? "Unavailable" : shortPath(project.path)}
+                        </small>
+                      </span>
+                      {current && <CheckCircle weight="fill" />}
+                    </button>
+                    {!current && (
+                      <button
+                        type="button"
+                        className="project-context-option-remove"
+                        aria-label={`Remove ${project.name}`}
+                        title="Remove from workspace"
+                        disabled={disabled || removing === project.path}
+                        onClick={() => void removeProject(project)}
+                      >
+                        <X />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="project-context-menu-footer">
+              {adding ? (
+                <form onSubmit={addProject}>
+                  <label htmlFor="composer-project-path">Local repository path</label>
+                  <div className="project-context-browse-row">
+                    <input
+                      id="composer-project-path"
+                      value={projectPath}
+                      disabled={saving}
+                      placeholder="/Users/you/projects/repository"
+                      onChange={(event) => setProjectPath(event.target.value)}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="project-context-browse"
+                      disabled={saving || browsing}
+                      onClick={() => void browseDirectory()}
+                    >
+                      <FolderOpen />
+                      {browsing ? "Opening…" : "Browse"}
+                    </button>
+                  </div>
+                  {message && <p role="alert">{message}</p>}
+                  <div>
+                    <button type="button" onClick={() => setAdding(false)}>
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={!projectPath.trim() || saving}>
+                      {saving ? "Adding…" : "Add project"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <button type="button" onClick={() => setAdding(true)}>
+                  <PlusSquare />
+                  Add local project
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {menu === "branch" && (
+          <div className="project-context-menu branch-menu">
+            <div className="project-context-menu-heading">Base branch</div>
+            <p className="project-context-menu-note">
+              Agents create their isolated worktrees from this branch.
+            </p>
+            <input
+              className="project-context-search"
+              type="text"
+              value={branchQuery}
+              placeholder="Search or create a branch…"
+              aria-label="Search or create a branch"
+              autoFocus
+              onChange={(event) => setBranchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && canCreateBranch) {
+                  event.preventDefault();
+                  void createBranchHandler();
+                }
+              }}
+            />
+            <div className="project-context-options" role="menu" aria-label="Select base branch">
+              {branchError && (
+                <p className="project-context-empty" role="alert">
+                  {branchError}
+                </p>
+              )}
+              {!branches && !branchError && (
+                <p className="project-context-empty">Loading branches…</p>
+              )}
+              {filteredBranches.map((name) => {
+                const current = name === branch;
+                return (
                   <button
                     type="button"
-                    className="project-context-option"
                     role="menuitemradio"
                     aria-checked={current}
-                    disabled={disabled || project.unavailable}
-                    onClick={() => void chooseProject(project).catch(() => {})}
+                    key={name}
+                    onClick={() => chooseBranch(name)}
                   >
-                    <FolderOpen weight={current ? "fill" : "regular"} />
+                    <GitBranch weight={current ? "fill" : "regular"} />
                     <span>
-                      <strong>{project.name}</strong>
-                      <small>{project.unavailable ? "Unavailable" : shortPath(project.path)}</small>
+                      <strong>{name}</strong>
                     </span>
                     {current && <CheckCircle weight="fill" />}
                   </button>
-                  {!current && (
-                    <button
-                      type="button"
-                      className="project-context-option-remove"
-                      aria-label={`Remove ${project.name}`}
-                      title="Remove from workspace"
-                      disabled={disabled || removing === project.path}
-                      onClick={() => void removeProject(project)}
-                    >
-                      <X />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <div className="project-context-menu-footer">
-            {adding ? (
-              <form onSubmit={addProject}>
-                <label htmlFor="composer-project-path">Local repository path</label>
-                <div className="project-context-browse-row">
-                  <input
-                    id="composer-project-path"
-                    value={projectPath}
-                    disabled={saving}
-                    placeholder="/Users/you/projects/repository"
-                    onChange={(event) => setProjectPath(event.target.value)}
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    className="project-context-browse"
-                    disabled={saving || browsing}
-                    onClick={() => void browseDirectory()}
-                  >
-                    <FolderOpen />
-                    {browsing ? "Opening…" : "Browse"}
-                  </button>
-                </div>
-                {message && <p role="alert">{message}</p>}
-                <div>
-                  <button type="button" onClick={() => setAdding(false)}>
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={!projectPath.trim() || saving}>
-                    {saving ? "Adding…" : "Add project"}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <button type="button" onClick={() => setAdding(true)}>
+                );
+              })}
+              {branches && !filteredBranches.length && (
+                <p className="project-context-empty">No matching branches.</p>
+              )}
+            </div>
+            <div className="project-context-menu-footer">
+              <button
+                type="button"
+                className="project-context-create"
+                disabled={!canCreateBranch || creatingBranch}
+                onClick={() => void createBranchHandler()}
+              >
                 <PlusSquare />
-                Add local project
+                <span>
+                  {creatingBranch
+                    ? "Creating…"
+                    : query
+                      ? `Create branch “${query}”`
+                      : "Create a new branch"}
+                  {canCreateBranch && !creatingBranch && <small>Branch from {branch}</small>}
+                </span>
               </button>
-            )}
+            </div>
           </div>
-        </div>
-      )}
-      {menu === "branch" && (
-        <div className="project-context-menu branch-menu">
-          <div className="project-context-menu-heading">Base branch</div>
-          <p className="project-context-menu-note">
-            Agents create their isolated worktrees from this branch.
-          </p>
-          <input
-            className="project-context-search"
-            type="text"
-            value={branchQuery}
-            placeholder="Search or create a branch…"
-            aria-label="Search or create a branch"
-            autoFocus
-            onChange={(event) => setBranchQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && canCreateBranch) {
-                event.preventDefault();
-                void createBranchHandler();
-              }
-            }}
-          />
-          <div className="project-context-options" role="menu" aria-label="Select base branch">
-            {branchError && (
-              <p className="project-context-empty" role="alert">
-                {branchError}
-              </p>
-            )}
-            {!branches && !branchError && (
-              <p className="project-context-empty">Loading branches…</p>
-            )}
-            {filteredBranches.map((name) => {
-              const current = name === branch;
-              return (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={current}
-                  key={name}
-                  onClick={() => chooseBranch(name)}
-                >
-                  <GitBranch weight={current ? "fill" : "regular"} />
-                  <span>
-                    <strong>{name}</strong>
-                  </span>
-                  {current && <CheckCircle weight="fill" />}
-                </button>
-              );
-            })}
-            {branches && !filteredBranches.length && (
-              <p className="project-context-empty">No matching branches.</p>
-            )}
+        )}
+      </div>
+      {hasSubRepos && reposOpen && (
+        <div className="subrepo-panel">
+          <div className="subrepo-panel-heading">
+            <span>Workspace sub-repositories</span>
+            <small>Switch each repo's checked-out branch. Requires a clean working tree.</small>
           </div>
-          <div className="project-context-menu-footer">
-            <button
-              type="button"
-              className="project-context-create"
-              disabled={!canCreateBranch || creatingBranch}
-              onClick={() => void createBranchHandler()}
-            >
-              <PlusSquare />
-              <span>
-                {creatingBranch
-                  ? "Creating…"
-                  : query
-                    ? `Create branch “${query}”`
-                    : "Create a new branch"}
-                {canCreateBranch && !creatingBranch && <small>Branch from {branch}</small>}
+          {subRepos.map((repo) => (
+            <div className="subrepo-row" key={repo.relativePath}>
+              <span className="subrepo-name">
+                <FolderOpen />
+                <span>
+                  <strong>{repo.name}</strong>
+                  <small>{repo.relativePath}</small>
+                </span>
               </span>
-            </button>
-          </div>
+              <label className="subrepo-branch">
+                <GitBranch />
+                <select
+                  aria-label={`Branch for ${repo.name}`}
+                  value={repo.branch}
+                  disabled={repoSwitching === repo.relativePath || !(repo.branches || []).length}
+                  onChange={(event) => void switchSubRepo(repo, event.target.value)}
+                >
+                  {!(repo.branches || []).includes(repo.branch) && (
+                    <option value={repo.branch}>{repo.branch}</option>
+                  )}
+                  {(repo.branches || []).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ))}
+          {repoError && (
+            <p className="subrepo-error" role="alert">
+              {repoError}
+            </p>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
