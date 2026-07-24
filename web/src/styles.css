@@ -1260,6 +1260,142 @@ input:focus-visible {
   margin: 0 3px;
   background: #2a3746;
 }
+.project-context-more {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #aeb8c5;
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.project-context-more:hover,
+.project-context-more.active {
+  background: #1a2735;
+  color: #eef1f5;
+}
+.project-context-more > svg:first-child {
+  width: 15px;
+  height: 15px;
+  color: #8b96a5;
+}
+.project-context-more em {
+  min-width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #26333f;
+  color: #c3ccd6;
+  font-size: 9px;
+  font-style: normal;
+}
+.project-context-more > svg:last-child {
+  width: 11px;
+  height: 11px;
+  color: #616e7e;
+}
+.subrepo-panel {
+  position: relative;
+  z-index: 3;
+  margin: 0 0 -1px;
+  padding: 11px 12px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid #354252;
+  border-top: 0;
+  background: #0c1622;
+}
+.subrepo-panel-heading {
+  display: grid;
+  gap: 2px;
+  padding: 2px 4px 8px;
+}
+.subrepo-panel-heading span {
+  color: #cdd4dd;
+  font-size: 11px;
+  font-weight: 600;
+}
+.subrepo-panel-heading small {
+  color: #707c8b;
+  font-size: 10px;
+}
+.subrepo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: #101c28;
+}
+.subrepo-name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.subrepo-name > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: #8490a0;
+}
+.subrepo-name > span {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.subrepo-name strong {
+  color: #e6eaf0;
+  font-size: 12px;
+}
+.subrepo-name small {
+  overflow: hidden;
+  color: #717d8c;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subrepo-branch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8490a0;
+}
+.subrepo-branch > svg {
+  width: 14px;
+  height: 14px;
+}
+.subrepo-branch select {
+  max-width: 220px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #35424f;
+  border-radius: 7px;
+  background: #16212e;
+  color: #d3d9e1;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.subrepo-branch select:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.subrepo-error {
+  margin: 2px 4px 0;
+  color: #ff938d;
+  font-size: 10.5px;
+}
 .project-context-menu {
   position: absolute;
   z-index: 35;

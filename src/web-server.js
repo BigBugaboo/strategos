@@ -8,7 +8,14 @@ import { loadConfig, normalizeNotificationSettings, saveConfig } from "./config.
 import { selectWorkerAgents } from "./console.js";
 import { runDoctor } from "./doctor.js";
 import { loadSessionTaskDiff } from "./diffs.js";
-import { createBranch, currentBranch, listBranches } from "./git.js";
+import {
+  createBranch,
+  currentBranch,
+  isRepoClean,
+  listBranches,
+  listSubRepos,
+  switchBranch,
+} from "./git.js";
 import { loadRun, runPlan } from "./orchestrator.js";
 import { planWithStrategist } from "./planner.js";
 import { createProjectRegistry } from "./projects.js";
@@ -211,6 +218,9 @@ export function createWebApplication(options) {
   const currentBranchFn = options.currentBranchFn || currentBranch;
   const listBranchesFn = options.listBranchesFn || listBranches;
   const createBranchFn = options.createBranchFn || createBranch;
+  const listSubReposFn = options.listSubReposFn || listSubRepos;
+  const isRepoCleanFn = options.isRepoCleanFn || isRepoClean;
+  const switchBranchFn = options.switchBranchFn || switchBranch;
   const pickDirectoryFn = options.pickDirectoryFn || pickDirectory;
   const ptyAvailableFn = options.ptyAvailableFn || ptyAvailable;
   const buildInteractiveSupportFn = options.buildInteractiveSupportFn || buildInteractiveSupport;
@@ -915,6 +925,42 @@ export function createWebApplication(options) {
           created: name,
           branches: branches.filter((branch) => !branch.startsWith("strategos/")),
         });
+        return;
+      }
+      if (request.method === "GET" && pathname === "/api/subrepos") {
+        const subRepos = await listSubReposFn(root);
+        // Attach each sub-repo's local branches (filtered) for the switcher.
+        const detailed = await Promise.all(
+          subRepos.map(async (repo) => {
+            const repoRoot = path.join(root, repo.relativePath);
+            const branches = await listBranchesFn(repoRoot).catch(() => []);
+            return { ...repo, branches: branches.filter((b) => !b.startsWith("strategos/")) };
+          }),
+        );
+        sendJson(response, 200, { subRepos: detailed });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/subrepos/checkout") {
+        const input = await readJsonBody(request);
+        const relativePath = String(input.repo || "");
+        const branch = String(input.branch || "").trim();
+        // Only allow switching a genuine sub-repo of this project.
+        const subRepos = await listSubReposFn(root);
+        const target = subRepos.find((repo) => repo.relativePath === relativePath);
+        if (!target) throw Object.assign(new Error("unknown sub-repo"), { status: 404 });
+        const repoRoot = path.join(root, target.relativePath);
+        const branches = await listBranchesFn(repoRoot).catch(() => []);
+        if (!branches.includes(branch)) {
+          throw Object.assign(new Error(`unknown branch: ${branch}`), { status: 400 });
+        }
+        if (!(await isRepoCleanFn(repoRoot))) {
+          throw Object.assign(
+            new Error(`${target.name} has uncommitted changes; commit or stash before switching`),
+            { status: 409 },
+          );
+        }
+        await switchBranchFn(repoRoot, branch);
+        sendJson(response, 200, { repo: relativePath, branch });
         return;
       }
       if (request.method === "POST" && pathname === "/api/pick-directory") {
