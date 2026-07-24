@@ -26,4 +26,5 @@ When implementing from a selected generated mock, treat that image as the source
 - Keep the new-task surface focused on the composer. Show the right-hand inspector only for a selected chat session, and let users collapse it without losing session state.
 - Treat keyboard and transient UI behavior as part of the product: focus the composer for new tasks, support Command/Control-K, close popovers with Escape or outside click, and expose mode choices with descriptions.
 - Keep the composer IME-safe: Enter confirms an active input-method composition, plain Enter sends only after composition ends, and Shift+Enter inserts a new line.
+- Keep worker CLI progress in one task-level workflow message that updates in place. Collapse per-step reports by default, but surface failures and interactive prompt controls without requiring expansion.
 - Reuse the repository's Strategos icon and Phosphor icons. Do not replace them with emoji, handcrafted SVGs, or CSS-drawn icons.

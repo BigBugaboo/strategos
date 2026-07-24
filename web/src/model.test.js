@@ -8,6 +8,7 @@ import {
   sessionStartedDate,
   sessionFileChanges,
   sessionTaskState,
+  sessionWorkflowState,
   shouldSubmitComposerKey,
   shouldNotifyForEvent,
   sortSidebarSessions,
@@ -105,6 +106,100 @@ describe("real session presentation", () => {
       expect.objectContaining({ id: "review", agent: "codex", status: "preparing" }),
     ]);
     expect(result.changedFiles).toEqual(["src/index.js"]);
+  });
+
+  it("summarizes task events into one workflow state", () => {
+    const session = {
+      status: "running",
+      plan: {
+        tasks: [
+          { id: "implementation", agent: "claude" },
+          { id: "review", agent: "codex" },
+          { id: "docs", agent: "codex" },
+        ],
+      },
+      events: [
+        {
+          type: "task_finished",
+          task: {
+            id: "implementation",
+            agent: "claude",
+            status: "succeeded",
+            changedFiles: ["src/index.js"],
+          },
+        },
+      ],
+    };
+    const result = sessionWorkflowState(session, [
+      { type: "task_started", task: { id: "review", agent: "codex" } },
+    ]);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "running",
+        completedCount: 1,
+        failedTasks: [],
+        changedFiles: ["src/index.js"],
+      }),
+    );
+    expect(result.activeTasks).toEqual([
+      expect.objectContaining({ id: "review", status: "running" }),
+    ]);
+  });
+
+  it("keeps terminal workflow failures and errors visible in the summary state", () => {
+    const result = sessionWorkflowState({
+      status: "failed",
+      plan: {
+        tasks: [
+          { id: "implementation", agent: "claude" },
+          { id: "review", agent: "codex" },
+        ],
+      },
+      manifest: {
+        tasks: {
+          implementation: { id: "implementation", status: "succeeded" },
+          review: { id: "review", status: "failed", error: "Tests did not pass" },
+        },
+      },
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.completedCount).toBe(2);
+    expect(result.failedTasks).toEqual([
+      expect.objectContaining({ id: "review", error: "Tests did not pass" }),
+    ]);
+  });
+
+  it("marks a fully finished workflow complete and retains its changed files", () => {
+    const result = sessionWorkflowState({
+      status: "succeeded",
+      plan: {
+        tasks: [
+          { id: "implementation", agent: "claude" },
+          { id: "review", agent: "codex" },
+        ],
+      },
+      manifest: {
+        tasks: {
+          implementation: {
+            id: "implementation",
+            status: "succeeded",
+            changedFiles: ["src/index.js"],
+          },
+          review: { id: "review", status: "succeeded" },
+        },
+      },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "succeeded",
+        completedCount: 2,
+        failedTasks: [],
+        changedFiles: ["src/index.js"],
+      }),
+    );
   });
 
   it("keeps changed files associated with their task diff snapshot", () => {
