@@ -154,6 +154,9 @@ function eventText(event) {
   if (event.type === "run_finished") {
     return `Strategos: Run ${event.manifest?.status || event.status || "finished"}`;
   }
+  if (event.type === "task_failover") {
+    return `${event.from} ran out of quota — handing ${event.task?.id || "the task"} to ${event.to}`;
+  }
   if (event.type === "guidance_added") return `You (guidance): ${event.text}`;
   if (event.type === "native_imported") {
     return `Strategos: Imported ${event.source || "native"} session`;
@@ -1194,6 +1197,14 @@ function WorkerMessage({ task, updatedAt, prompt, onAnswer }) {
           <small className="worker-task-id">
             {task.mode ? `${task.id} · ${task.mode}` : task.id}
           </small>
+          {task.failoverFrom?.length > 0 && (
+            <small
+              className="worker-failover"
+              title={`Handed off from ${task.failoverFrom.join(", ")} after quota ran out`}
+            >
+              ↳ from {task.failoverFrom.join(", ")}
+            </small>
+          )}
           {done && <time>{clock(updatedAt)}</time>}
         </div>
         {done ? (

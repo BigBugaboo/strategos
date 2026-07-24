@@ -1031,6 +1031,15 @@ input:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.worker-failover {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #2a2340;
+  color: #c3b4ff;
+  font-size: 9px;
+  white-space: nowrap;
+}
 .worker-step {
   display: flex;
   align-items: center;

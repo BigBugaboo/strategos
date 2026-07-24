@@ -16,6 +16,7 @@ import {
 } from "./git.js";
 import { buildWaves, validatePlan } from "./plan.js";
 import { runCommand, commandExistsError, ptyAvailable } from "./process.js";
+import { isQuotaError } from "./quota.js";
 import { createRunId, ensureDir, readJson, truncateText, writeJson } from "./utils.js";
 
 async function readOptional(file) {
@@ -32,6 +33,8 @@ function publicTaskResult(result, root) {
   return {
     id: result.id,
     agent: result.agent,
+    plannedAgent: result.plannedAgent ?? result.agent,
+    failoverFrom: result.failoverFrom ?? undefined,
     mode: result.mode,
     sessionId: result.sessionId ?? null,
     sessionName: result.sessionName ?? null,
@@ -149,76 +152,107 @@ async function prepareTask({
   }
 }
 
-async function executePreparedTask(prepared, config, signal, onPrompt, onSteer) {
-  if (prepared.status === "failed") return prepared;
-  const timeoutMs = config.taskTimeoutMinutes * 60_000;
+// Run one worker attempt with a specific agent + its invocations, honoring
+// interactive mode. Returns the raw process-style result.
+async function runWorkerOnce({ prepared, agent, invocation, interactiveInvocation, config, signal, onPrompt, onSteer, timeoutMs }) {
   const env = {
     ...process.env,
     STRATEGOS_TASK_ID: prepared.id,
-    STRATEGOS_AGENT: prepared.agent,
+    STRATEGOS_AGENT: agent,
     STRATEGOS_MODE: prepared.mode,
     STRATEGOS_SESSION_ID: prepared.sessionId,
     STRATEGOS_WORKTREE: prepared.worktree,
   };
-  // Interactive mode (opt-in) lets a worker pause to ask the user. Codex uses
-  // its app-server protocol and Claude its stream-json permission tool (both
-  // plain pipes); other CLIs fall back to a PTY, which needs node-pty. All
-  // surface tool-permission prompts through `onPrompt`.
   const interactiveEnabled = Boolean(config.interactive && onPrompt);
-  const useCodexAppServer = interactiveEnabled && prepared.agent === "codex";
-  const useClaudeInteractive = interactiveEnabled && prepared.agent === "claude";
+  const useCodexAppServer = interactiveEnabled && agent === "codex";
+  const useClaudeInteractive = interactiveEnabled && agent === "claude";
   const usePty =
     interactiveEnabled &&
     !useCodexAppServer &&
     !useClaudeInteractive &&
-    prepared.interactiveInvocation &&
+    interactiveInvocation &&
     (await ptyAvailable());
-  let result;
+  const task = { id: prepared.id, agent };
   if (useClaudeInteractive) {
-    const claudeResult = await runClaudeInteractive({
-      command: prepared.invocation.command,
-      prompt: prepared.prompt,
-      cwd: prepared.worktree,
-      env,
-      signal,
-      timeoutMs,
-      onPrompt,
-      task: { id: prepared.id, agent: prepared.agent },
+    const r = await runClaudeInteractive({
+      command: invocation.command, prompt: prepared.prompt, cwd: prepared.worktree, env, signal, timeoutMs, onPrompt, task,
     });
-    result = { stdout: claudeResult.report || "", stderr: claudeResult.error || "", code: claudeResult.code, aborted: claudeResult.aborted, timedOut: claudeResult.timedOut, error: null };
-  } else if (useCodexAppServer) {
-    const codexResult = await runCodexAppServer({
-      command: prepared.invocation.command,
-      prompt: prepared.prompt,
-      cwd: prepared.worktree,
-      env,
+    return { stdout: r.report || "", stderr: r.error || "", code: r.code, aborted: r.aborted, timedOut: r.timedOut, error: null };
+  }
+  if (useCodexAppServer) {
+    const r = await runCodexAppServer({
+      command: invocation.command, prompt: prepared.prompt, cwd: prepared.worktree, env,
       sandbox: prepared.mode === "read-only" ? "read-only" : "workspace-write",
-      approvalPolicy: "on-request",
+      approvalPolicy: "on-request", signal, timeoutMs, onPrompt, onSteer, task,
+    });
+    return { stdout: r.report || "", stderr: r.error || "", code: r.code, aborted: r.aborted, timedOut: r.timedOut, error: null };
+  }
+  if (usePty) {
+    const r = await runInteractiveTask({
+      command: interactiveInvocation.command, args: interactiveInvocation.args, cwd: prepared.worktree, signal, timeoutMs, env, onPrompt, task,
+    });
+    return { stdout: r.output || "", stderr: "", code: r.code, aborted: r.aborted, timedOut: r.timedOut, error: null };
+  }
+  return runCommand(invocation.command, invocation.args, { cwd: prepared.worktree, signal, timeoutMs, env });
+}
+
+async function executePreparedTask(prepared, config, signal, onPrompt, onSteer, emit) {
+  if (prepared.status === "failed") return prepared;
+  const timeoutMs = config.taskTimeoutMinutes * 60_000;
+  // Candidate CLIs to hand the task to if the current one exhausts its quota,
+  // in configured order, starting with the task's assigned agent.
+  const enabled = Object.entries(config.agents || {})
+    .filter(([, value]) => value.enabled !== false)
+    .map(([name]) => name);
+  let agent = prepared.agent;
+  let invocation = prepared.invocation;
+  let interactiveInv = prepared.interactiveInvocation;
+  const attempts = [];
+  let result;
+  while (true) {
+    result = await runWorkerOnce({
+      prepared,
+      agent,
+      invocation,
+      interactiveInvocation: interactiveInv,
+      config,
       signal,
-      timeoutMs,
       onPrompt,
       onSteer,
-      task: { id: prepared.id, agent: prepared.agent },
-    });
-    result = { stdout: codexResult.report || "", stderr: codexResult.error || "", code: codexResult.code, aborted: codexResult.aborted, timedOut: codexResult.timedOut, error: null };
-  } else if (usePty) {
-    const ptyResult = await runInteractiveTask({
-      command: prepared.interactiveInvocation.command,
-      args: prepared.interactiveInvocation.args,
-      cwd: prepared.worktree,
-      signal,
       timeoutMs,
-      env,
-      onPrompt,
-      task: { id: prepared.id, agent: prepared.agent },
     });
-    result = { stdout: ptyResult.output || "", stderr: "", code: ptyResult.code, aborted: ptyResult.aborted, timedOut: ptyResult.timedOut, error: null };
-  } else {
-    result = await runCommand(prepared.invocation.command, prepared.invocation.args, {
-      cwd: prepared.worktree,
-      signal,
-      timeoutMs,
-      env,
+    attempts.push(agent);
+    const failed = result.aborted
+      ? false
+      : commandExistsError(result) || result.timedOut || result.code !== 0 || !result.stdout.trim();
+    // Fail over only when the failure looks like quota/rate-limit exhaustion,
+    // the run was not interrupted, and another CLI is available to take over.
+    if (!failed || result.aborted || signal?.aborted || !isQuotaError(result)) break;
+    const next = enabled.find((candidate) => !attempts.includes(candidate));
+    if (!next) break;
+    await emit?.({
+      type: "task_failover",
+      task: { id: prepared.id, agent, mode: prepared.mode },
+      from: agent,
+      to: next,
+      reason: "quota",
+    });
+    agent = next;
+    invocation = agentInvocation(next, {
+      prompt: prepared.prompt,
+      mode: prepared.mode,
+      workspace: prepared.worktree,
+      config,
+      attachments: prepared.attachments,
+      sessionId: prepared.sessionId,
+      sessionName: prepared.sessionName,
+    });
+    interactiveInv = interactiveInvocation(next, {
+      prompt: prepared.prompt,
+      mode: prepared.mode,
+      workspace: prepared.worktree,
+      config,
+      attachments: prepared.attachments,
     });
   }
 
@@ -242,7 +276,7 @@ async function executePreparedTask(prepared, config, signal, onPrompt, onSteer) 
     files = await changedFiles(prepared.worktree).catch(() => []);
   }
   let error = null;
-  if (commandExistsError(result)) error = `${prepared.invocation.command} not found on PATH`;
+  if (commandExistsError(result)) error = `${invocation.command} not found on PATH`;
   else if (result.aborted) error = "task interrupted by user";
   else if (result.timedOut) error = `task exceeded ${config.taskTimeoutMinutes} minutes`;
   else if (result.code !== 0) error = result.stderr.trim() || `agent exited with code ${result.code}`;
@@ -250,6 +284,11 @@ async function executePreparedTask(prepared, config, signal, onPrompt, onSteer) 
 
   return {
     ...prepared,
+    // Reflect the CLI that actually finished the task (may differ from the
+    // planned agent after a quota failover).
+    agent,
+    plannedAgent: prepared.agent,
+    failoverFrom: agent !== prepared.agent ? attempts.slice(0, -1) : undefined,
     status: result.aborted ? "interrupted" : error ? "failed" : "succeeded",
     exitCode: result.code,
     report,
@@ -391,7 +430,7 @@ export async function runPlan({
       if (task.status !== "failed") await emit({ type: "task_started", task });
     }
     const batch = await Promise.all(
-      prepared.map((task) => executePreparedTask(task, config, signal, onPrompt, onSteer)),
+      prepared.map((task) => executePreparedTask(task, config, signal, onPrompt, onSteer, emit)),
     );
     for (const result of batch) {
       results.set(result.id, result);
