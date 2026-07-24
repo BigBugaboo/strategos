@@ -36,7 +36,7 @@ import {
   sessionActivityState,
   sessionFileChanges,
   sessionStartedDate,
-  sessionTaskState,
+  sessionWorkflowState,
   shouldSubmitComposerKey,
   shouldNotifyForEvent,
   sortSidebarSessions,
@@ -132,6 +132,8 @@ function statusLabel(status) {
       planning: "Planning",
       planned: "Ready",
       previewed: "Ready",
+      queued: "Queued",
+      preparing: "Preparing",
       running: "In progress",
       succeeded: "Complete",
       failed: "Failed",
@@ -1181,72 +1183,190 @@ function PromptCard({ prompt, onAnswer }) {
   );
 }
 
-function WorkerMessage({ task, updatedAt, prompt, onAnswer }) {
+function TaskStatusIcon({ status }) {
+  if (status === "succeeded") return <CheckCircle weight="fill" />;
+  if (status === "failed") return <WarningCircle weight="fill" />;
+  if (status === "interrupted") return <StopCircle weight="fill" />;
+  if (status === "skipped") return <Info />;
+  return null;
+}
+
+function WorkflowTask({ task, waitingForInput }) {
   const active = ["preparing", "running"].includes(task.status);
-  const done = ["succeeded", "failed", "interrupted", "skipped"].includes(task.status);
   const color = AGENT_COLORS[task.agent] || "#57626f";
-  const fileCount = task.changedFiles?.length || 0;
   return (
-    <article className={`message worker-message state-${task.status || "queued"}`}>
-      <span className="avatar worker-avatar" style={{ background: color }}>
-        {capitalize(task.agent)[0]}
+    <li className={`workflow-task state-${task.status || "queued"}`}>
+      <span
+        className={`workflow-task-state ${active && !waitingForInput ? "activity-pulse" : ""}`}
+        style={active || !task.status ? { background: color } : undefined}
+      >
+        <TaskStatusIcon status={task.status} />
       </span>
       <div>
-        <div className="message-meta">
-          <strong>{capitalize(task.agent)}</strong>
-          <small className="worker-task-id">
-            {task.mode ? `${task.id} · ${task.mode}` : task.id}
+        <strong>{task.prompt || task.id}</strong>
+        <small>
+          {capitalize(task.agent)} · {statusLabel(task.status || "queued")}
+          {(task.changedFiles?.length || 0) > 0 &&
+            ` · ${task.changedFiles.length} file${task.changedFiles.length === 1 ? "" : "s"}`}
+        </small>
+        {task.failoverFrom?.length > 0 && (
+          <small
+            className="workflow-task-failover"
+            title={`Handed off from ${task.failoverFrom.join(", ")} after quota ran out`}
+          >
+            ↳ from {task.failoverFrom.join(", ")}
           </small>
-          {task.failoverFrom?.length > 0 && (
-            <small
-              className="worker-failover"
-              title={`Handed off from ${task.failoverFrom.join(", ")} after quota ran out`}
-            >
-              ↳ from {task.failoverFrom.join(", ")}
-            </small>
-          )}
-          {done && <time>{clock(updatedAt)}</time>}
-        </div>
-        {done ? (
-          <>
-            <p className={`run-state state-${task.status}`}>
-              {task.status === "succeeded" ? (
-                <CheckCircle weight="fill" />
-              ) : task.status === "interrupted" ? (
-                <StopCircle weight="fill" />
-              ) : task.status === "skipped" ? (
-                <Info />
-              ) : (
-                <WarningCircle weight="fill" />
-              )}{" "}
-              {statusLabel(task.status)}
-              {fileCount > 0 && ` · ${fileCount} file${fileCount === 1 ? "" : "s"} changed`}
-            </p>
-            {task.report ? (
-              <div className="worker-report">{task.report}</div>
-            ) : task.error ? (
-              <p className="worker-error">{task.error}</p>
-            ) : (
-              <p className="muted-copy">No conclusion was returned.</p>
-            )}
-          </>
-        ) : (
-          <>
-            <p className="worker-step">
-              <span
-                className={`worker-step-dot ${active ? "activity-pulse" : ""}`}
-                style={{ background: color }}
-              />
-              {prompt ? "Waiting for your input…" : workerStepLabel(task.status)}
-            </p>
-            {prompt && (
-              <PromptCard
-                prompt={prompt}
-                onAnswer={(value) => onAnswer(task.id, prompt.id, value)}
-              />
-            )}
-          </>
         )}
+        {active && (
+          <p>{waitingForInput ? "Waiting for your input…" : workerStepLabel(task.status)}</p>
+        )}
+        {task.report && <div className="worker-report">{task.report}</div>}
+        {task.error && <p className="worker-error">{task.error}</p>}
+      </div>
+    </li>
+  );
+}
+
+function WorkflowPrompt({ task, prompt, onAnswer }) {
+  const color = AGENT_COLORS[task.agent] || "#57626f";
+  return (
+    <section className="workflow-prompt">
+      <header>
+        <span className="workflow-prompt-dot" style={{ background: color }} />
+        <span>
+          <strong>{task.prompt || task.id}</strong>
+          <small>{capitalize(task.agent)} needs your input</small>
+        </span>
+      </header>
+      <PromptCard
+        key={prompt.id}
+        prompt={prompt}
+        onAnswer={(value) => onAnswer(task.id, prompt.id, value)}
+      />
+    </section>
+  );
+}
+
+function WorkflowMessage({ session, workflow, pendingPrompts, onAnswer }) {
+  const total = workflow.tasks.length;
+  const active = workflow.activeTasks;
+  const promptTasks = active.filter((task) => pendingPrompts[task.id]);
+  const fileCount = workflow.changedFiles.length;
+  const progress = total ? Math.round((workflow.completedCount / total) * 100) : 0;
+  const runningLabel =
+    promptTasks.length > 1
+      ? `${promptTasks.length} CLI workers need your input`
+      : promptTasks.length === 1
+        ? `${capitalize(promptTasks[0].agent)} needs your input for ${promptTasks[0].id}`
+        : active.length > 1
+          ? `${active.length} CLI workers are active`
+          : active.length === 1
+            ? `${capitalize(active[0].agent)} is ${
+                active[0].status === "preparing" ? "preparing" : "working on"
+              } ${active[0].id}`
+            : "Advancing the task workflow";
+  const headline =
+    workflow.status === "failed"
+      ? "Task workflow failed"
+      : workflow.status === "interrupted"
+        ? "Task workflow interrupted"
+        : workflow.status === "succeeded"
+          ? "Task workflow complete"
+          : workflow.status === "running"
+            ? runningLabel
+            : "Task workflow ready";
+  const summary =
+    workflow.status === "succeeded"
+      ? `${total} step${total === 1 ? "" : "s"} completed${
+          fileCount ? ` · ${fileCount} file${fileCount === 1 ? "" : "s"} changed` : ""
+        }`
+      : workflow.status === "failed"
+        ? `${workflow.completedCount} of ${total} steps finished · ${
+            workflow.failedTasks.length
+          } failed`
+        : workflow.status === "interrupted"
+          ? `Stopped after ${workflow.completedCount} of ${total} steps finished`
+          : `${workflow.completedCount} of ${total} steps finished${
+              promptTasks.length ? " · Waiting for input" : ""
+            }`;
+  const primaryFailure = workflow.failedTasks[0];
+
+  return (
+    <article className={`message workflow-message state-${workflow.status}`}>
+      <img className="avatar logo-avatar" src="/strategos-icon.png" alt="" />
+      <div>
+        <div className="message-meta">
+          <strong>Task workflow</strong>
+          {["succeeded", "failed", "interrupted"].includes(workflow.status) && (
+            <time>{clock(session.updatedAt)}</time>
+          )}
+        </div>
+        <div className="workflow-status" role="status" aria-live="polite">
+          <span className="workflow-status-icon">
+            {workflow.status === "running" || workflow.status === "queued" ? (
+              <i
+                className={
+                  workflow.status === "running" && !promptTasks.length ? "activity-pulse" : ""
+                }
+              />
+            ) : (
+              <TaskStatusIcon status={workflow.status} />
+            )}
+          </span>
+          <span>
+            <strong>{headline}</strong>
+            <small>{summary}</small>
+          </span>
+        </div>
+        <div
+          className="workflow-progress"
+          role="progressbar"
+          aria-label="Task workflow progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={progress}
+        >
+          <i style={{ width: `${progress}%` }} />
+        </div>
+        {primaryFailure && (
+          <div className="workflow-failure" role="alert">
+            <WarningCircle weight="fill" />
+            <span>
+              <strong>{primaryFailure.id}</strong>
+              <small>{primaryFailure.error || statusLabel(primaryFailure.status)}</small>
+            </span>
+          </div>
+        )}
+        {promptTasks.length > 0 && (
+          <div className="workflow-prompts" aria-label="Required task input">
+            {promptTasks.map((task) => (
+              <WorkflowPrompt
+                key={`${task.id}-${pendingPrompts[task.id].id}`}
+                task={task}
+                prompt={pendingPrompts[task.id]}
+                onAnswer={onAnswer}
+              />
+            ))}
+          </div>
+        )}
+        <details className="workflow-details">
+          <summary>
+            <CaretRight />
+            <span>Workflow details</span>
+            <small>
+              {total} step{total === 1 ? "" : "s"}
+            </small>
+          </summary>
+          <ol>
+            {workflow.tasks.map((task) => (
+              <WorkflowTask
+                key={task.id}
+                task={task}
+                waitingForInput={Boolean(pendingPrompts[task.id])}
+              />
+            ))}
+          </ol>
+        </details>
       </div>
     </article>
   );
@@ -1255,7 +1375,7 @@ function WorkerMessage({ task, updatedAt, prompt, onAnswer }) {
 function SessionChat({ session, liveEvents, pendingPrompts = {}, onAnswer }) {
   if (!session) return <EmptyChat />;
   const plan = session.plan;
-  const { tasks } = sessionTaskState(session, liveEvents);
+  const workflow = sessionWorkflowState(session, liveEvents);
   return (
     <div className="conversation">
       <article className="message user-message">
@@ -1298,18 +1418,13 @@ function SessionChat({ session, liveEvents, pendingPrompts = {}, onAnswer }) {
           )}
         </div>
       </article>
-      {tasks.length > 0 && (
-        <div className="worker-stream" aria-label="Worker activity">
-          {tasks.map((task) => (
-            <WorkerMessage
-              key={task.id}
-              task={task}
-              updatedAt={session.updatedAt}
-              prompt={pendingPrompts[task.id]}
-              onAnswer={onAnswer}
-            />
-          ))}
-        </div>
+      {workflow.tasks.length > 0 && (
+        <WorkflowMessage
+          session={session}
+          workflow={workflow}
+          pendingPrompts={pendingPrompts}
+          onAnswer={onAnswer}
+        />
       )}
       {session.error && (
         <div className="error-banner">

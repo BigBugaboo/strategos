@@ -226,8 +226,12 @@ menu also offers **Only One**, which pins a single CLI (Claude Code or Codex
 CLI, whichever is healthy) to both plan and execute the goal as an isolated
 single-CLI session; it always auto-runs and the last pinned CLI is remembered
 for the next task. Session history,
-image upload, Resume, recent events, and changed files remain local. Selecting a
-file in **Files changed** opens its saved read-only patch; Unified is the default
+image upload, Resume, recent events, and changed files remain local. Worker CLI
+progress is summarized in one task workflow message that updates in place; its
+step reports remain available behind **Workflow details**, while failures stay
+visible in the collapsed summary. Interactive prompts remain visible above the
+collapsed details so a worker waiting for input can continue. Selecting a file
+in **Files changed** opens its saved read-only patch; Unified is the default
 layout and Split is available for side-by-side review.
 
 See [docs/web-ui.md](docs/web-ui.md) for Vite+ development commands and the

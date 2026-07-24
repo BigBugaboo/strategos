@@ -1000,39 +1000,226 @@ input:focus-visible {
 .run-state svg {
   color: var(--green);
 }
-.state-failed svg {
+.run-state.state-failed svg {
   color: #ff625e;
 }
-.state-interrupted svg {
+.run-state.state-interrupted svg {
   color: #e8a654;
 }
-.state-skipped svg {
+.run-state.state-skipped svg {
   color: #8a94a3;
 }
-.worker-stream {
-  display: grid;
-  gap: 4px;
-  max-width: 820px;
-}
-.worker-message {
+.workflow-message {
   margin-bottom: 20px;
 }
-.worker-avatar {
-  display: grid;
-  place-items: center;
-  color: #0a121c;
-  font-size: 12px;
-  font-weight: 700;
+.workflow-message > div {
+  min-width: 0;
 }
-.worker-task-id {
+.workflow-status {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin-top: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px 8px 0 0;
+  background: rgba(13, 24, 36, 0.72);
+}
+.workflow-status-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+}
+.workflow-status-icon svg {
+  width: 17px;
+  height: 17px;
+}
+.workflow-status-icon i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #9b5cff;
+}
+.state-succeeded .workflow-status-icon svg {
+  color: var(--green);
+}
+.state-failed .workflow-status-icon svg {
+  color: #ff625e;
+}
+.state-interrupted .workflow-status-icon svg {
+  color: #e8a654;
+}
+.workflow-status > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.workflow-status strong {
   overflow: hidden;
-  color: #7f8997;
-  font-size: 11px;
+  color: #dce1e8;
+  font-size: 12.5px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.worker-failover {
+.workflow-status small {
+  color: #7f8a99;
+  font-size: 10.5px;
+}
+.workflow-progress {
+  height: 2px;
+  overflow: hidden;
+  border-radius: 0 0 2px 2px;
+  background: rgba(126, 141, 161, 0.12);
+}
+.workflow-progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #8053ea, #4bcbbf);
+  transition: width 180ms ease;
+}
+.state-failed .workflow-progress i {
+  background: #dc625f;
+}
+.state-interrupted .workflow-progress i {
+  background: #c98b43;
+}
+.workflow-failure {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 9px;
+  padding: 9px 10px;
+  border-left: 2px solid #c94f4b;
+  background: rgba(83, 26, 29, 0.24);
+}
+.workflow-failure > svg {
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  color: #ff7772;
+}
+.workflow-failure span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.workflow-failure strong {
+  color: #efc2bf;
+  font-size: 12px;
+}
+.workflow-failure small {
+  color: #c7928f;
+  font-size: 10.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.workflow-details {
+  margin-top: 9px;
+  border-top: 1px solid var(--line-soft);
+}
+.workflow-details summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  color: #8f99a7;
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+.workflow-details summary::-webkit-details-marker {
+  display: none;
+}
+.workflow-details summary svg {
+  width: 13px;
+  height: 13px;
   flex: none;
+  transition: transform 140ms ease;
+}
+.workflow-details[open] summary svg {
+  transform: rotate(90deg);
+}
+.workflow-details summary span {
+  color: #abb4c0;
+}
+.workflow-details summary small {
+  margin-left: auto;
+  color: #697584;
+  font-size: 10px;
+}
+.workflow-details ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workflow-task {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 9px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(126, 141, 161, 0.1);
+}
+.workflow-task-state {
+  display: grid;
+  width: 10px;
+  height: 10px;
+  place-items: center;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #4e5967;
+}
+.workflow-task-state svg {
+  width: 13px;
+  height: 13px;
+  color: #7c8796;
+}
+.workflow-task.state-succeeded .workflow-task-state {
+  background: transparent;
+}
+.workflow-task.state-succeeded .workflow-task-state svg {
+  color: var(--green);
+}
+.workflow-task.state-failed .workflow-task-state,
+.workflow-task.state-interrupted .workflow-task-state,
+.workflow-task.state-skipped .workflow-task-state {
+  background: transparent;
+}
+.workflow-task.state-failed .workflow-task-state svg {
+  color: #ff625e;
+}
+.workflow-task.state-interrupted .workflow-task-state svg {
+  color: #e8a654;
+}
+.workflow-task.state-skipped .workflow-task-state svg {
+  color: #8a94a3;
+}
+.workflow-task > div {
+  min-width: 0;
+}
+.workflow-task > div > strong {
+  display: block;
+  overflow: hidden;
+  color: #c7ced8;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-task > div > small {
+  display: block;
+  margin-top: 2px;
+  color: #707b8a;
+  font-size: 10px;
+}
+.workflow-task > div > .workflow-task-failover {
+  width: fit-content;
+  margin-top: 5px;
   padding: 1px 7px;
   border-radius: 999px;
   background: #2a2340;
@@ -1040,19 +1227,10 @@ input:focus-visible {
   font-size: 9px;
   white-space: nowrap;
 }
-.worker-step {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin: 9px 0 0 !important;
-  color: #aeb7c4 !important;
-  font-size: 12px;
-}
-.worker-step-dot {
-  width: 9px;
-  height: 9px;
-  flex: none;
-  border-radius: 50%;
+.workflow-task > div > p:not(.worker-error) {
+  margin-top: 5px !important;
+  color: #8e99a7 !important;
+  font-size: 10.5px;
 }
 .worker-report {
   margin-top: 11px;
@@ -1074,6 +1252,47 @@ input:focus-visible {
   font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.workflow-prompts {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+}
+.workflow-prompt {
+  padding: 10px 12px 12px;
+  border-left: 2px solid #7764f2;
+  background: rgba(47, 39, 90, 0.2);
+}
+.workflow-prompt header {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.workflow-prompt-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.workflow-prompt header > span:last-child {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.workflow-prompt header strong {
+  overflow: hidden;
+  color: #d6dce5;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-prompt header small {
+  color: #9389c4;
+  font-size: 10px;
+}
+.workflow-prompt .prompt-card {
+  margin-top: 8px;
 }
 .prompt-card {
   margin-top: 10px;

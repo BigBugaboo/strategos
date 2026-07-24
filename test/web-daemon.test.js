@@ -15,6 +15,12 @@ import {
 const execFileAsync = promisify(execFile);
 const entrypoint = fileURLToPath(new URL("../bin/strategos.js", import.meta.url));
 
+function fetchDaemonStatus(state) {
+  return fetch(new URL("/api/web/status", state.url), {
+    headers: { "x-strategos-web-token": state.token },
+  });
+}
+
 test("Web daemon survives its starter and stops only through the stop command", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "strategos-web-daemon-test-"));
   await execFileAsync("git", ["init", "--quiet", root]);
@@ -31,7 +37,7 @@ test("Web daemon survives its starter and stops only through the stop command", 
   });
   assert.equal(started.alreadyRunning, false);
   assert.match(started.url, /^http:\/\/127\.0\.0\.1:\d+$/);
-  assert.equal((await fetch(started.url)).status, 200);
+  assert.equal((await fetchDaemonStatus(started)).status, 200);
 
   const duplicate = await startWebDaemon({
     root,
@@ -47,7 +53,7 @@ test("Web daemon survives its starter and stops only through the stop command", 
   assert.equal(restarted.restarted, true);
   assert.notEqual(restarted.pid, started.pid);
   assert.equal(restarted.url, started.url);
-  assert.equal((await fetch(restarted.url)).status, 200);
+  assert.equal((await fetchDaemonStatus(restarted)).status, 200);
 
   const stopped = await stopWebDaemon({ root });
   assert.equal(stopped.alreadyStopped, false);
@@ -59,7 +65,7 @@ test("Web daemon survives its starter and stops only through the stop command", 
 
   const startedByRestart = await restartWebDaemon({ root, entrypoint, port: 0 });
   assert.equal(startedByRestart.restarted, false);
-  assert.equal((await fetch(startedByRestart.url)).status, 200);
+  assert.equal((await fetchDaemonStatus(startedByRestart)).status, 200);
   assert.equal((await stopWebDaemon({ root })).alreadyStopped, false);
 });
 

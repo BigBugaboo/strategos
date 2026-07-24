@@ -82,6 +82,33 @@ export function sessionTaskState(session, liveEvents = []) {
   };
 }
 
+export function sessionWorkflowState(session, liveEvents = []) {
+  const taskState = sessionTaskState(session, liveEvents);
+  const terminalStatuses = new Set(["succeeded", "failed", "interrupted", "skipped"]);
+  const completedTasks = taskState.tasks.filter((task) => terminalStatuses.has(task.status));
+  const failedTasks = taskState.tasks.filter((task) =>
+    ["failed", "interrupted"].includes(task.status),
+  );
+  const status =
+    session?.status === "failed" || failedTasks.some((task) => task.status === "failed")
+      ? "failed"
+      : session?.status === "interrupted" ||
+          failedTasks.some((task) => task.status === "interrupted")
+        ? "interrupted"
+        : session?.status === "running" || taskState.activeTasks.length > 0
+          ? "running"
+          : taskState.tasks.length > 0 && completedTasks.length === taskState.tasks.length
+            ? "succeeded"
+            : "queued";
+  return {
+    ...taskState,
+    status,
+    completedTasks,
+    completedCount: completedTasks.length,
+    failedTasks,
+  };
+}
+
 export function sessionFileChanges(session, liveEvents = []) {
   const changes = new Map();
   for (const task of sessionTaskState(session, liveEvents).tasks) {
